@@ -36,47 +36,29 @@ struct SearchWindow: View {
     @State private var selection = Set<String>()
     @State private var sortOrder = [KeyPathComparator(\FileRecord.name)]
     @State private var folders = false
+    @State private var options = false
+    @State private var advanced = false
+    @AppStorage("showFilterBar") private var showFilterBar = false
+    @AppStorage("showStatusBar") private var showStatusBar = true
+    @AppStorage("hideEmptyResults") private var hideEmptyResults = false
+    @AppStorage("alternateRows") private var alternateRows = false
+    @AppStorage("resultFontSize") private var resultFontSize = 12.0
     @State private var bookmarks = UserDefaults.standard.stringArray(forKey: "bookmarks") ?? []
     @State private var error: String?
     @FocusState private var searchFocused: Bool
     private let categories = ["Everything", "Folders", "Documents", "Images", "Audio", "Video", "Archives"]
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search files and folders", text: $query).textFieldStyle(.plain).focused($searchFocused).onSubmit { if let first = results.first { open(selection.isEmpty ? [first.path] : selection) } }
-                if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain) }
-                Picker("Filter", selection: $category) { ForEach(categories, id: \.self) { Text($0) } }.labelsHidden().frame(width: 140)
-            }.padding(12)
-            Divider()
-            HStack {
-                Toggle("Match Case", isOn: $caseSensitive)
-                Toggle("Match Path", isOn: $matchPath)
-                Toggle("Whole Word", isOn: $wholeWord)
-                Toggle("Regex", isOn: $regex)
-                Menu("History") {
-                    ForEach(history, id: \.self) { saved in Button(saved) { query = saved } }
-                    Button("Clear History") { history = []; UserDefaults.standard.removeObject(forKey: "history") }
-                }.frame(width: 80)
-                Spacer()
-                Menu("Bookmarks") {
-                    Button("Bookmark Current Search") {
-                        saveBookmark()
-                    }
-                    ForEach(bookmarks, id: \.self) { saved in Button(saved) { restoreBookmark(saved) } }
-                    Divider()
-                    Button("Clear Bookmarks") { bookmarks = []; UserDefaults.standard.removeObject(forKey: "bookmarks"); UserDefaults.standard.removeObject(forKey: "bookmarkPresets") }
-                }.frame(width: 110)
-            }.toggleStyle(.checkbox).font(.system(size: 11)).padding(.horizontal, 12).padding(.vertical, 6)
+            classicMenuBar
+            HStack(spacing: 2) {
+                TextField("", text: $query).textFieldStyle(.plain).focused($searchFocused)
+                    .font(.system(size: 13)).padding(.horizontal, 4).frame(height: 23)
+                    .background(Color.white).border(Color.gray.opacity(0.6))
+                    .onSubmit { if let first = results.first { open(selection.isEmpty ? [first.path] : selection) } }
+                Menu { ForEach(history, id: \.self) { saved in Button(saved) { query = saved } } } label: { Image(systemName: "chevron.down").font(.system(size: 9)) }.menuStyle(.borderlessButton).frame(width: 16)
+                if showFilterBar { Picker("Filter", selection: $category) { ForEach(categories, id: \.self) { Text($0) } }.labelsHidden().frame(width: 115) }
+            }.padding(.horizontal, 3).padding(.vertical, 3)
             if let queryError { Text(queryError).foregroundStyle(.red).font(.caption).padding(6) }
-            if index.roots.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: "folder.badge.magnifyingglass").font(.system(size: 36)).foregroundStyle(.secondary)
-                    Text("Choose where Anyseek searches").font(.headline)
-                    Text("Add your home folder or a drive. Your index stays on this Mac.").foregroundStyle(.secondary)
-                    Button("Add Folders…") { index.chooseFolders() }.keyboardShortcut("o", modifiers: [.command, .shift])
-                }.frame(maxWidth: .infinity).padding(24)
-            }
             Table(results, selection: $selection, sortOrder: $sortOrder) {
                 TableColumn("Name", value: \.name) { file in
                     HStack(spacing: 6) {
@@ -88,6 +70,8 @@ struct SearchWindow: View {
                 TableColumn("Size", value: \.size) { Text($0.isDirectory ? "—" : ByteCountFormatter.string(fromByteCount: $0.size, countStyle: .file)) }.width(85)
                 TableColumn("Date Modified", value: \.modified) { Text($0.modified.formatted(date: .numeric, time: .shortened)) }.width(145)
             }
+            .font(.system(size: resultFontSize))
+            .background(ClassicTableStyle(alternateRows: alternateRows, fontSize: resultFontSize))
             .background(ResultKeyHandler(open: { open(selection) }, preview: { if !selection.isEmpty { preview = true } }, copy: { copyFiles(selection) }, trash: { if !selection.isEmpty { trashSelection = selection; confirmTrash = true } }))
             .contextMenu(forSelectionType: String.self) { ids in
                 Button("Open") { open(ids) }.disabled(ids.isEmpty)
@@ -101,33 +85,20 @@ struct SearchWindow: View {
                 Button("Move to Trash…") { trashSelection = ids; confirmTrash = true }.disabled(ids.isEmpty)
             } primaryAction: { ids in open(ids) }
             Divider()
-            HStack {
+            if showStatusBar { HStack {
                 Text("\(results.count.formatted()) objects")
                 Spacer()
                 if index.indexing { ProgressView().controlSize(.small) }
                 Text(index.status)
                 if index.indexing { Button("Pause") { index.cancel() }.buttonStyle(.link) }
                 if !index.issues.isEmpty { Button("Details") { diagnostics = true }.buttonStyle(.link) }
-            }.font(.system(size: 11)).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 7)
+                Text([caseSensitive ? "CASE" : "", wholeWord ? "WORD" : "", matchPath ? "PATH" : "", regex ? "REGEX" : "", category == "Everything" ? "" : category].filter { !$0.isEmpty }.joined(separator: "  "))
+            }.font(.system(size: 11)).padding(.horizontal, 5).padding(.vertical, 3) }
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        .toolbar {
-            Button { preview.toggle() } label: { Label("Quick Look", systemImage: "eye") }.disabled(selection.isEmpty)
-            Menu {
-                Toggle("Show Hidden Files", isOn: $showHidden)
-                Button(SMAppService.mainApp.status == .enabled ? "Disable Launch at Login" : "Launch at Login") {
-                    do { if SMAppService.mainApp.status == .enabled { try SMAppService.mainApp.unregister() } else { try SMAppService.mainApp.register() } }
-                    catch { self.error = error.localizedDescription }
-                }
-                Button("Search Help") { help = true }
-                Button("Privacy Settings…") { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!) }
-            } label: { Label("Options", systemImage: "gearshape") }
-            Button { index.chooseFolders() } label: { Label("Add Folders", systemImage: "folder.badge.plus") }
-            Button { folders = true } label: { Label("Indexed Folders", systemImage: "externaldrive") }
-            Button { index.rebuild() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
-            Button { export() } label: { Label("Export Results", systemImage: "square.and.arrow.up") }
-            Button { searchFocused = true } label: { Label("Find", systemImage: "magnifyingglass") }.keyboardShortcut("f")
-        }
+        .preferredColorScheme(.light)
+        .sheet(isPresented: $options) { ClassicOptions(index: index) }
+        .sheet(isPresented: $advanced) { AdvancedSearchDialog(query: $query) }
         .sheet(isPresented: $folders) {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Indexed Folders").font(.headline)
@@ -175,10 +146,66 @@ struct SearchWindow: View {
             Button("Cancel", role: .cancel) { }
         }
         .alert("Anyseek", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
-        .task(id: query + category + String(caseSensitive) + String(matchPath) + String(index.revision) + String(wholeWord) + String(regex) + String(showHidden)) { await search() }
+        .task(id: query + category + String(caseSensitive) + String(matchPath) + String(index.revision) + String(wholeWord) + String(regex) + String(showHidden) + String(hideEmptyResults)) { await search() }
         .onChange(of: sortOrder) { _ in results.sort(using: sortOrder) }
         .onAppear { searchFocused = true }
         .onReceive(NotificationCenter.default.publisher(for: .anyseekFocus)) { _ in searchFocused = true }
+    }
+    private var classicMenuBar: some View {
+        HStack(spacing: 0) {
+            Menu("File") {
+                Button("Open") { open(selection) }.disabled(selection.isEmpty)
+                Button("Open Path") { reveal(selection) }.disabled(selection.isEmpty)
+                Divider()
+                Button("Export…") { export() }
+                Divider()
+                Button("Exit") { NSApp.terminate(nil) }
+            }
+            Menu("Edit") {
+                Button("Copy") { copyFiles(selection) }.keyboardShortcut("c").disabled(selection.isEmpty)
+                Button("Copy Full Name to Clipboard") { copy(selection) }.disabled(selection.isEmpty)
+                Button("Select All") { selection = Set(results.map(\.path)) }.keyboardShortcut("a")
+                Divider()
+                Button("Rename…") { beginRename(selection) }.disabled(selection.count != 1)
+                Button("Delete…") { trashSelection = selection; confirmTrash = true }.disabled(selection.isEmpty)
+            }
+            Menu("View") {
+                Toggle("Filter Bar", isOn: $showFilterBar)
+                Toggle("Status Bar", isOn: $showStatusBar)
+                Toggle("Show Hidden Files", isOn: $showHidden)
+                Divider()
+                Button("Preview") { preview = true }.disabled(selection.isEmpty)
+                Button("Refresh") { index.rebuild() }.keyboardShortcut("r")
+                Button("Zoom In") { resultFontSize = min(22, resultFontSize + 1) }
+                Button("Zoom Out") { resultFontSize = max(9, resultFontSize - 1) }
+            }
+            Menu("Search") {
+                Toggle("Match Case", isOn: $caseSensitive)
+                Toggle("Match Whole Word", isOn: $wholeWord)
+                Toggle("Match Path", isOn: $matchPath)
+                Toggle("Enable Regex", isOn: $regex)
+                Divider()
+                ForEach(categories, id: \.self) { item in Button((category == item ? "✓ " : "") + item) { category = item } }
+                Divider()
+                Button("Advanced Search…") { advanced = true }
+            }
+            Menu("Bookmarks") {
+                Button("Add to Bookmarks…") { saveBookmark() }.keyboardShortcut("d")
+                ForEach(bookmarks, id: \.self) { saved in Button(saved) { restoreBookmark(saved) } }
+                Divider()
+                Button("Clear Bookmarks") { bookmarks = []; UserDefaults.standard.removeObject(forKey: "bookmarks"); UserDefaults.standard.removeObject(forKey: "bookmarkPresets") }
+            }
+            Menu("Tools") {
+                Button("Options…") { options = true }.keyboardShortcut(",")
+                Button("Indexing Details…") { diagnostics = true }
+            }
+            Menu("Help") {
+                Button("Search Syntax") { help = true }
+                Button("About Anyseek") { error = "Anyseek 0.3.0\nIndependent macOS implementation. Classic interface reference: Everything 1.4.\nNot affiliated with voidtools." }
+            }
+            Spacer(minLength: 0)
+        }.menuStyle(.borderlessButton).fixedSize(horizontal: false, vertical: true)
+        .font(.system(size: 12)).padding(.horizontal, 5).padding(.vertical, 2)
     }
     private func search() async {
         do { try await Task.sleep(nanoseconds: 100_000_000) } catch { return }
@@ -198,7 +225,7 @@ struct SearchWindow: View {
         }
         let filtered = await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
         guard !Task.isCancelled else { return }
-        results = filtered.sorted(using: sortOrder)
+        results = hideEmptyResults && text.isEmpty ? [] : filtered.sorted(using: sortOrder)
         selection.formIntersection(Set(results.map(\.id)))
     }
     private func open(_ ids: Set<String>) { rememberSearch(); for path in ids { if !NSWorkspace.shared.open(URL(fileURLWithPath: path)) { error = "Could not open \(path)" } } }
