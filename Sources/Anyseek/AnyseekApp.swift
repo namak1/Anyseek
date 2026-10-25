@@ -33,7 +33,7 @@ struct SearchWindow: View {
     @State private var category = "Everything"
     @State private var caseSensitive = false
     @State private var matchPath = false
-    @State private var results: [FileRecord] = []
+    @State private var results: ResultRows = .empty
     @State private var resultIndex = ResultIndex()
     @State private var resultGeneration = 0
     @State private var sortGeneration = 0
@@ -170,7 +170,6 @@ struct SearchWindow: View {
         ]
     }
     private func search() async {
-        do { try await Task.sleep(nanoseconds: 100_000_000) } catch { return }
         let files = index.files, text = query, selectedCategory = category, sensitive = caseSensitive, path = matchPath, whole = wholeWord, regular = regex, hidden = showHidden
         let parser = SearchQuery(text, caseSensitive: sensitive, matchPath: path, wholeWord: whole, regex: regular)
         queryError = parser.error
@@ -193,11 +192,10 @@ struct SearchWindow: View {
         do {
             let filtered = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
             guard !Task.isCancelled else { return }
-            results = hideEmptyResults && text.isEmpty ? [] : filtered
+            results = hideEmptyResults && text.isEmpty ? .empty : filtered
             resultGeneration += 1; searching = false
             // Selection reconciliation only examines selected rows, not every path.
             if !selection.isEmpty { selection.formIntersection(Set(results.lazy.filter { selection.contains($0.path) }.map(\.path))) }
-            if !index.indexing { Task.detached(priority: .utility) { try? await engine.warm() } }
         } catch is CancellationError { }
         catch { searching = false; self.error = error.localizedDescription }
     }
@@ -252,7 +250,7 @@ struct SearchWindow: View {
             do { try FileManager.default.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: nil); deleted.append(path) }
             catch { failures.append("\(path): \(error.localizedDescription)") }
         }
-        if !deleted.isEmpty { index.applyLive(removed: deleted); results.removeAll { file in deleted.contains { PathScope.contains($0, file.path) } }; resultGeneration += 1 }
+        if !deleted.isEmpty { index.applyLive(removed: deleted); results = results.removing { file in deleted.contains { PathScope.contains($0, file.path) } }; resultGeneration += 1 }
         if !failures.isEmpty { error = failures.joined(separator: "\n") }
         selection = []
     }

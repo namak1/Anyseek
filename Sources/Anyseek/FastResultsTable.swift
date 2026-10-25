@@ -1,9 +1,10 @@
 import SwiftUI
 import AppKit
 import AnyseekCore
+import UniformTypeIdentifiers
 
 struct FastResultsTable: NSViewRepresentable {
-    var files: [FileRecord]
+    var files: ResultRows
     @Binding var selection: Set<String>
     @Binding var sortOrder: [KeyPathComparator<FileRecord>]
     var generation: Int
@@ -54,6 +55,7 @@ struct FastResultsTable: NSViewRepresentable {
         var fontSize = 0.0
         var updating = false
         let date = DateFormatter()
+        let icons = NSCache<NSString, NSImage>()
         init(_ parent: FastResultsTable) { self.parent = parent; date.dateStyle = .short; date.timeStyle = .short }
         func numberOfRows(in tableView: NSTableView) -> Int { parent.files.count }
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
@@ -72,7 +74,7 @@ struct FastResultsTable: NSViewRepresentable {
             }
             cell.textField?.font = .systemFont(ofSize: parent.fontSize)
             switch id.rawValue {
-            case "name": cell.textField?.stringValue = file.name; cell.imageView?.image = NSWorkspace.shared.icon(forFile: file.path)
+            case "name": cell.textField?.stringValue = file.name; cell.imageView?.image = icon(file)
             case "path": cell.textField?.stringValue = (file.path as NSString).deletingLastPathComponent
             case "size": cell.textField?.stringValue = file.isDirectory ? "" : ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file)
             default: cell.textField?.stringValue = date.string(from: file.modified)
@@ -92,6 +94,14 @@ struct FastResultsTable: NSViewRepresentable {
             case "path": parent.sortOrder = [KeyPathComparator(\FileRecord.path, order: order)]
             default: parent.sortOrder = [KeyPathComparator(\FileRecord.name, order: order)]
             }
+        }
+        private func icon(_ file: FileRecord) -> NSImage {
+            let ext = (file.name as NSString).pathExtension.lowercased()
+            let key = (file.isDirectory ? "<folder>" : ext) as NSString
+            if let cached = icons.object(forKey: key) { return cached }
+            let image = NSWorkspace.shared.icon(for: file.isDirectory ? .folder : (UTType(filenameExtension: ext) ?? .data))
+            icons.countLimit = 256; icons.setObject(image, forKey: key)
+            return image
         }
         @objc func openRows() { parent.open(parent.selection) }
         func contextMenu() -> NSMenu { parent.actions(parent.selection) }

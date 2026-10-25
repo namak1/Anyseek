@@ -11,6 +11,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test search engine
         run: swift test
+      - name: Benchmark optimized million-file engine
+        run: swift test -c release --filter ResultIndexTests
       - name: Exercise filesystem lifecycle
         run: swift run Anyseek --self-test
       - name: Build application
