@@ -247,10 +247,12 @@ struct SearchWindow: View {
     }
     private func trash() {
         var failures: [String] = []
+        var deleted: [String] = []
         for path in PathScope.compact(Array(trashSelection)) {
-            do { try FileManager.default.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: nil); index.applyLive(removed: [path]); results.removeAll { PathScope.contains(path, $0.path) }; resultGeneration += 1 }
+            do { try FileManager.default.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: nil); deleted.append(path) }
             catch { failures.append("\(path): \(error.localizedDescription)") }
         }
+        if !deleted.isEmpty { index.applyLive(removed: deleted); results.removeAll { file in deleted.contains { PathScope.contains($0, file.path) } }; resultGeneration += 1 }
         if !failures.isEmpty { error = failures.joined(separator: "\n") }
         selection = []
     }

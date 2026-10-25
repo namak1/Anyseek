@@ -90,6 +90,9 @@ actor IndexEngine {
     @Published var excluded = UserDefaults.standard.stringArray(forKey: "excluded") ?? []
     private var stream: FSEventStreamRef?
     private var pending: DispatchWorkItem?
+    private var livePending: DispatchWorkItem?
+    private var livePaths = Set<String>()
+    private var liveRecursive = Set<String>()
     private var queued = Set<String>()
     private var job: Task<Void, Never>?
     private var paused = false
@@ -182,7 +185,7 @@ actor IndexEngine {
         }
     }
     func shutdown() {
-        job?.cancel(); pending?.cancel()
+        job?.cancel(); pending?.cancel(); livePending?.cancel()
         if let stream { FSEventStreamStop(stream); FSEventStreamInvalidate(stream); FSEventStreamRelease(stream); self.stream = nil }
         for observer in volumeObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         volumeObservers.removeAll()
@@ -252,7 +255,16 @@ actor IndexEngine {
     private func changed(_ paths: [String], full: Bool, recursive: Set<String>) {
         let relevant = paths.filter { path in !PathScope.isTrash(path) && !PathScope.contains(cache.path, path) && !excluded.contains(where: { PathScope.contains($0, path) }) }
         guard !relevant.isEmpty else { return }
-        inspectLive(relevant, recursive: recursive)
+        livePaths.formUnion(relevant); liveRecursive.formUnion(recursive)
+        if livePending == nil {
+            let item = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                let paths = Array(self.livePaths), directories = self.liveRecursive
+                self.livePaths.removeAll(); self.liveRecursive.removeAll(); self.livePending = nil
+                self.inspectLive(paths, recursive: directories)
+            }
+            livePending = item; DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: item)
+        }
         if full { queued.formUnion(roots) }
         pending?.cancel()
         let item = DispatchWorkItem { [weak self] in Task { @MainActor in if self?.indexing == false && self?.paused == false { self?.launch() } } }

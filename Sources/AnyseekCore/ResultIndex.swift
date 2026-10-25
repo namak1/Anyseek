@@ -22,7 +22,18 @@ public actor ResultIndex {
             self.liveToken = liveToken
             let scopes = PathScope.compact(Array(removed))
             let changed = Set(updated.map(\.path))
-            func keep(_ file: FileRecord) -> Bool { !changed.contains(file.path) && !scopes.contains(where: { PathScope.contains($0, file.path) }) }
+            let scopeSet = Set(scopes)
+            func deleted(_ path: String) -> Bool {
+                if scopes.count <= 8 { return scopes.contains { PathScope.contains($0, path) } }
+                var candidate = path[...]
+                while !candidate.isEmpty {
+                    if scopeSet.contains(String(candidate)) { return true }
+                    guard let slash = candidate.lastIndex(of: "/") else { break }
+                    candidate = candidate[..<slash]
+                }
+                return scopeSet.contains("/")
+            }
+            func keep(_ file: FileRecord) -> Bool { !changed.contains(file.path) && !deleted(file.path) }
             let additions = updated.filter(matches)
             filtered = filtered.filter(keep) + additions
             for key in Array(sorted.keys) {
