@@ -36,10 +36,10 @@ struct SearchWindow: View {
     @State private var results: ResultRows = .empty
     @State private var resultIndex = ResultIndex()
     @State private var resultGeneration = 0
-    @State private var sortGeneration = 0
     @State private var searching = false
     @State private var selection = Set<String>()
-    @State private var sortOrder = [KeyPathComparator(\FileRecord.name)]
+    @State private var sortColumn: ResultColumn = .name
+    @State private var sortDescending = false
     @State private var folders = false
     @State private var options = false
     @State private var advanced = false
@@ -65,7 +65,7 @@ struct SearchWindow: View {
             }.padding(.horizontal, 3).padding(.vertical, 3)
             if let queryError { Text(queryError).foregroundStyle(.red).font(.caption).padding(6) }
             HSplitView {
-            FastResultsTable(files: results, selection: $selection, sortOrder: $sortOrder, generation: resultGeneration, alternate: alternateRows, fontSize: resultFontSize, open: { open($0) }, preview: { selection = $0; preview = true }, copy: { copyFiles($0) }, trash: { trashSelection = $0; confirmTrash = !$0.isEmpty }, actions: { ids in
+            FastResultsTable(files: results, selection: $selection, sortColumn: $sortColumn, sortDescending: $sortDescending, generation: resultGeneration, alternate: alternateRows, fontSize: resultFontSize, open: { open($0) }, preview: { selection = $0; preview = true }, copy: { copyFiles($0) }, trash: { trashSelection = $0; confirmTrash = !$0.isEmpty }, actions: { ids in
                 let menu = NSMenu(); menu.autoenablesItems = false
                 menu.addItem(MenuCommand("Open", enabled: !ids.isEmpty) { open(ids) })
                 menu.addItem(MenuCommand("Reveal in Finder", enabled: !ids.isEmpty) { reveal(ids) })
@@ -146,9 +146,8 @@ struct SearchWindow: View {
             Button("Cancel", role: .cancel) { }
         }
         .alert("Anyseek", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
-        .task(id: query + category + String(caseSensitive) + String(matchPath) + String(index.revision) + String(wholeWord) + String(regex) + String(showHidden) + String(hideEmptyResults) + String(sortGeneration) + String(index.liveRevision)) { await search() }
+        .task(id: query + category + String(caseSensitive) + String(matchPath) + String(index.revision) + String(wholeWord) + String(regex) + String(showHidden) + String(hideEmptyResults) + sortColumn.rawValue + String(sortDescending) + String(index.liveRevision)) { await search() }
         .onChange(of: options) { visible in if !visible { history = UserDefaults.standard.stringArray(forKey: "history") ?? [] } }
-        .onChange(of: sortOrder) { _ in sortGeneration += 1 }
         .onAppear { query = ""; category = "Everything"; hideEmptyResults = false; searchFocused = true }
         .onReceive(NotificationCenter.default.publisher(for: .anyseekFocus)) { _ in searchFocused = true }
     }
@@ -173,9 +172,7 @@ struct SearchWindow: View {
         let files = index.files, text = query, selectedCategory = category, sensitive = caseSensitive, path = matchPath, whole = wholeWord, regular = regex, hidden = showHidden
         let parser = SearchQuery(text, caseSensitive: sensitive, matchPath: path, wholeWord: whole, regex: regular)
         queryError = parser.error
-        let comparator = sortOrder.first
-        let column: ResultColumn = comparator?.keyPath == \FileRecord.size ? .size : comparator?.keyPath == \FileRecord.modified ? .modified : comparator?.keyPath == \FileRecord.path ? .path : .name
-        let descending = comparator?.order == .reverse
+        let column = sortColumn, descending = sortDescending
         let revision = index.revision
         let liveToken = index.liveRevision, removed = index.liveRemoved, updated = Array(index.liveUpdated.values)
         let signature = [text, selectedCategory, String(sensitive), String(path), String(whole), String(regular), String(hidden)].joined(separator: "\0")

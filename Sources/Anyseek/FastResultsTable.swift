@@ -6,7 +6,8 @@ import UniformTypeIdentifiers
 struct FastResultsTable: NSViewRepresentable {
     var files: ResultRows
     @Binding var selection: Set<String>
-    @Binding var sortOrder: [KeyPathComparator<FileRecord>]
+    @Binding var sortColumn: ResultColumn
+    @Binding var sortDescending: Bool
     var generation: Int
     var alternate: Bool
     var fontSize: Double
@@ -26,7 +27,8 @@ struct FastResultsTable: NSViewRepresentable {
             column.sortDescriptorPrototype = NSSortDescriptor(key: key, ascending: true)
             table.addTableColumn(column)
         }
-        table.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+        table.headerView = SortingHeaderView()
+        table.sortDescriptors = [NSSortDescriptor(key: sortColumn.rawValue, ascending: !sortDescending)]
         table.context = { [weak coordinator = context.coordinator] in coordinator?.contextMenu() ?? NSMenu() }
         table.keyAction = { [weak coordinator = context.coordinator] event in coordinator?.key(event) ?? false }
         scroll.documentView = table; context.coordinator.table = table
@@ -118,13 +120,8 @@ struct FastResultsTable: NSViewRepresentable {
         }
         func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
             guard let descriptor = tableView.sortDescriptors.first else { return }
-            let order: SortOrder = descriptor.ascending ? .forward : .reverse
-            switch descriptor.key {
-            case "size": parent.sortOrder = [KeyPathComparator(\FileRecord.size, order: order)]
-            case "modified": parent.sortOrder = [KeyPathComparator(\FileRecord.modified, order: order)]
-            case "path": parent.sortOrder = [KeyPathComparator(\FileRecord.path, order: order)]
-            default: parent.sortOrder = [KeyPathComparator(\FileRecord.name, order: order)]
-            }
+            parent.sortColumn = ResultColumn(rawValue: descriptor.key ?? "name") ?? .name
+            parent.sortDescending = !descriptor.ascending
         }
         private func icon(_ file: FileRecord) -> NSImage {
             let ext = (file.name as NSString).pathExtension.lowercased()
@@ -155,4 +152,21 @@ final class ResultTable: NSTableView {
         return context?()
     }
     override func keyDown(with event: NSEvent) { if keyAction?(event) != true { super.keyDown(with: event) } }
+}
+
+/// Handle ordinary header clicks explicitly while leaving divider resizing to AppKit.
+final class SortingHeaderView: NSTableHeaderView {
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let column = column(at: point)
+        guard let tableView, column >= 0 else { super.mouseDown(with: event); return }
+        let rect = headerRect(ofColumn: column)
+        if abs(point.x - rect.maxX) < 5 || abs(point.x - rect.minX) < 5 {
+            super.mouseDown(with: event); return
+        }
+        let key = tableView.tableColumns[column].identifier.rawValue
+        let current = tableView.sortDescriptors.first
+        let ascending = current?.key == key ? !(current?.ascending ?? false) : true
+        tableView.sortDescriptors = [NSSortDescriptor(key: key, ascending: ascending)]
+    }
 }

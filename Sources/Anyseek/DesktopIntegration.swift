@@ -73,7 +73,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let selectedPath = coordinator.parent.files[500000].path
         for (key, ascending) in [("size", true), ("size", false), ("modified", true), ("modified", false), ("name", true)] {
             let generation = coordinator.generation, start = Date()
-            table.sortDescriptors = [NSSortDescriptor(key: key, ascending: ascending)]
+            guard let header = table.headerView, let window = table.window,
+                  let column = table.tableColumns.firstIndex(where: { $0.identifier.rawValue == key }) else { exit(1) }
+            let rect = header.headerRect(ofColumn: column)
+            let point = header.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
+            guard let event = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1) else { exit(1) }
+            header.mouseDown(with: event)
+            guard table.sortDescriptors.first?.key == key, table.sortDescriptors.first?.ascending == ascending else { fputs("Header click did not change sort descriptor\n", stderr); exit(1) }
             guard await wait({ coordinator.generation > generation }) else { fputs("UI sort timed out\n", stderr); exit(1) }
             guard await wait({
                 table.selectedRowIndexes.count == 1 && table.selectedRow >= 0 && coordinator.parent.files[table.selectedRow].path == selectedPath
@@ -81,8 +87,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             table.layoutSubtreeIfNeeded(); table.displayIfNeeded()
             let rows = coordinator.parent.files
             guard rows.count == 1_000_000 else { exit(1) }
-            if key == "size", let first = rows.first, let last = rows.last {
-                guard ascending ? first.size <= last.size : first.size >= last.size else { exit(1) }
+            for i in 1..<rows.count {
+                let a = rows[i - 1], b = rows[i]
+                let ordered: Bool
+                switch key {
+                case "size": ordered = ascending ? a.size <= b.size : a.size >= b.size
+                case "modified": ordered = ascending ? a.modified <= b.modified : a.modified >= b.modified
+                default: ordered = ascending ? a.name <= b.name : a.name >= b.name
+                }
+                guard ordered else { fputs("Header click produced unsorted rows\n", stderr); exit(1) }
             }
             print("UI BENCHMARK 1000000: \(key) \(ascending ? "ascending" : "descending") click-to-table=\(Date().timeIntervalSince(start))s")
         }
