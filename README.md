@@ -6,10 +6,12 @@
 
 Requires **macOS 13 or later**. The ZIP contains a **universal application for Apple Silicon and Intel**.
 
-1. Open [GitHub Actions](https://github.com/namak1/Anyseek/actions), choose a successful **macOS Build**, and download **Anyseek-macos-universal** under Artifacts.
-2. Extract the artifact, then `Anyseek-macos.zip`. Drag **Anyseek.app** into Applications.
-3. Launch Anyseek and choose **Add Folders**. Select your home folder or the drives you want indexed.
-4. Type a filename or search expression. Indexing runs in the background; subsequent launches load the saved catalogue.
+1. Open [Downloads](https://github.com/namak1/Anyseek/releases) and download **Anyseek.dmg** from the newest release.
+2. Double-click the DMG, then drag **Anyseek.app** onto the **Applications** folder beside it.
+3. Eject the disk image. Open **Applications → Anyseek** and choose **Add Folders**.
+4. Select your home folder or drives, then start searching. No coding tools or Terminal commands are needed.
+
+A ZIP containing the same ready-to-run `.app` is also available under the release assets.
 
 The app is ad-hoc signed, not Apple-notarized. If macOS blocks it, use **System Settings → Privacy & Security → Open Anyway** after reviewing the download source. Some protected folders require permission in Privacy & Security; the app reports inaccessible locations rather than bypassing restrictions.
 

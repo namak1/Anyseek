@@ -15,6 +15,14 @@ jobs:
         run: swift run Anyseek --self-test
       - name: Build application
         run: bash scripts/build-app.sh
+      - name: Verify drag-and-drop installer
+        run: |
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/Anyseek-install" dist/Anyseek.dmg
+          test -x "$RUNNER_TEMP/Anyseek-install/Anyseek.app/Contents/MacOS/Anyseek"
+          test -f "$RUNNER_TEMP/Anyseek-install/Anyseek.app/Contents/Resources/Anyseek.icns"
+          test "$(readlink "$RUNNER_TEMP/Anyseek-install/Applications")" = /Applications
+          codesign --verify --deep --strict "$RUNNER_TEMP/Anyseek-install/Anyseek.app"
+          hdiutil detach "$RUNNER_TEMP/Anyseek-install"
       - name: Render native window
         run: python3 -c 'import subprocess; subprocess.run(["dist/Anyseek.app/Contents/MacOS/Anyseek", "--ui-smoke-test"], check=True, timeout=45)'
       - uses: actions/upload-artifact@v4
@@ -22,6 +30,7 @@ jobs:
           name: Anyseek-macos-universal
           path: |
             dist/Anyseek-macos.zip
+            dist/Anyseek.dmg
             dist/SHA256SUMS.txt
             dist/Anyseek-window.png
       - name: Publish tested Mac download
@@ -29,4 +38,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v0.2.0-build.${GITHUB_RUN_NUMBER}" dist/Anyseek-macos.zip dist/SHA256SUMS.txt dist/Anyseek-window.png --target "$GITHUB_SHA" --prerelease --title "Anyseek 0.2.0 · build ${GITHUB_RUN_NUMBER}" --notes-file scripts/release-notes.md
+          gh release create "v0.2.0-build.${GITHUB_RUN_NUMBER}" dist/Anyseek.dmg dist/Anyseek-macos.zip dist/SHA256SUMS.txt dist/Anyseek-window.png --target "$GITHUB_SHA" --prerelease --title "Anyseek 0.2.0 · build ${GITHUB_RUN_NUMBER}" --notes-file scripts/release-notes.md
