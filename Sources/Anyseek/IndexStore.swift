@@ -10,7 +10,7 @@ struct ScanResult {
 actor IndexEngine {
     private var database: IndexDatabase?
     private let cache: URL
-    init(cache: URL) { self.cache = cache }
+    init(cache: URL) { self.cache = URL(fileURLWithPath: PathScope.canonical(cache.path)) }
     private func db() throws -> IndexDatabase {
         if let database { return database }
         let opened = try IndexDatabase(url: cache.appendingPathComponent("index.sqlite")); database = opened; return opened
@@ -84,7 +84,10 @@ actor IndexEngine {
     private var volumeObservers: [NSObjectProtocol] = []
     init() {
         cache = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Anyseek")
+        cache = URL(fileURLWithPath: PathScope.canonical(cache.path))
         engine = IndexEngine(cache: cache)
+        roots = PathScope.compact(roots.map { PathScope.canonical($0) })
+        excluded = PathScope.compact(excluded.map { PathScope.canonical($0) })
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification, NSWorkspace.didWakeNotification] {
             volumeObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in Task { @MainActor [weak self] in self?.watch(); self?.rebuild() } })
@@ -99,8 +102,8 @@ actor IndexEngine {
         let panel = NSOpenPanel(); panel.canChooseFiles = false; panel.canChooseDirectories = true; panel.allowsMultipleSelection = true
         panel.prompt = exclude ? "Exclude" : "Index"
         guard panel.runModal() == .OK else { return }
-        if exclude { excluded = PathScope.compact(excluded + panel.urls.map { $0.resolvingSymlinksInPath().path }); UserDefaults.standard.set(excluded, forKey: "excluded") }
-        else { roots = PathScope.compact(roots + panel.urls.map { $0.resolvingSymlinksInPath().path }); UserDefaults.standard.set(roots, forKey: "roots") }
+        if exclude { excluded = PathScope.compact(excluded + panel.urls.map { PathScope.canonical($0.path) }); UserDefaults.standard.set(excluded, forKey: "excluded") }
+        else { roots = PathScope.compact(roots + panel.urls.map { PathScope.canonical($0.path) }); UserDefaults.standard.set(roots, forKey: "roots") }
         watch(); restart()
     }
     func removeRoot(_ root: String) { roots.removeAll { $0 == root }; UserDefaults.standard.set(roots, forKey: "roots"); watch(); restart() }

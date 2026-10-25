@@ -12,7 +12,7 @@ import AnyseekCore
     }
     static func integrationTest() async throws {
         let fm = FileManager.default
-        let base = fm.temporaryDirectory.appendingPathComponent("Anyseek-test-" + UUID().uuidString).resolvingSymlinksInPath()
+        let base = URL(fileURLWithPath: PathScope.canonical(fm.temporaryDirectory.path)).appendingPathComponent("Anyseek-test-" + UUID().uuidString)
         defer { try? fm.removeItem(at: base) }
         let root = base.appendingPathComponent("files"), cache = base.appendingPathComponent("cache")
         try fm.createDirectory(at: root.appendingPathComponent("nested"), withIntermediateDirectories: true)

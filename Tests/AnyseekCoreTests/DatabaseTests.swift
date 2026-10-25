@@ -22,6 +22,7 @@ final class DatabaseTests: XCTestCase {
         XCTAssertEqual(try reopened.load(), [file])
     }
     func testScopes() {
+        XCTAssertEqual(PathScope.compact(["/private/var/x", "/private/var/x/y"]), ["/private/var/x"])
         XCTAssertTrue(PathScope.contains("/", "/Users/a"))
         XCTAssertFalse(PathScope.contains("/a", "/ab/file"))
         XCTAssertEqual(PathScope.compact(["/a", "/a/b", "/ab", "/a"]), ["/a", "/ab"])

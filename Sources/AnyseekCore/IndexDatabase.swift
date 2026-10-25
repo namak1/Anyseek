@@ -1,5 +1,10 @@
 import Foundation
 import CSQLite
+#if canImport(Darwin)
+import Darwin
+#else
+import Glibc
+#endif
 
 /// Confined to the indexing actor. Search snapshots never share this connection.
 public final class IndexDatabase {
@@ -64,12 +69,30 @@ public final class IndexDatabase {
 }
 
 public enum PathScope {
+    /// Resolve the existing ancestor with POSIX realpath. Foundation can shorten
+    /// /private/var to /var while directory enumeration returns /private/var.
+    public static func canonical(_ path: String) -> String {
+        if let resolved = realpath(path, nil) { defer { free(resolved) }; return String(cString: resolved) }
+        guard path != "/" else { return path }
+        let url = URL(fileURLWithPath: path)
+        let parent = url.deletingLastPathComponent().path
+        return canonical(parent) + (parent == "/" ? "" : "/") + url.lastPathComponent
+    }
+    private static func lexical(_ path: String) -> String {
+        var parts: [Substring] = []
+        for part in path.split(separator: "/") {
+            if part == "." { continue }
+            if part == ".." { if !parts.isEmpty { parts.removeLast() } }
+            else { parts.append(part) }
+        }
+        return "/" + parts.joined(separator: "/")
+    }
     public static func contains(_ parent: String, _ child: String) -> Bool {
         child == parent || child.hasPrefix(parent == "/" ? "/" : parent + "/")
     }
     public static func compact(_ paths: [String]) -> [String] {
         var result: [String] = []
-        for path in Set(paths.map { URL(fileURLWithPath: $0).standardizedFileURL.path }).sorted(by: { $0.count < $1.count }) {
+        for path in Set(paths.map { lexical($0) }).sorted(by: { $0.count < $1.count }) {
             if !result.contains(where: { contains($0, path) }) { result.append(path) }
         }
         return result.sorted()
