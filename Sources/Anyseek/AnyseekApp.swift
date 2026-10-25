@@ -158,64 +158,25 @@ struct SearchWindow: View {
         .task(id: query + category + String(caseSensitive) + String(matchPath) + String(index.revision) + String(wholeWord) + String(regex) + String(showHidden) + String(hideEmptyResults)) { await search() }
         .onChange(of: options) { visible in if !visible { history = UserDefaults.standard.stringArray(forKey: "history") ?? [] } }
         .onChange(of: sortOrder) { _ in results.sort(using: sortOrder) }
-        .onAppear { searchFocused = true }
+        .onAppear { query = ""; category = "Everything"; hideEmptyResults = false; searchFocused = true }
         .onReceive(NotificationCenter.default.publisher(for: .anyseekFocus)) { _ in searchFocused = true }
     }
-    private var classicMenuBar: some View {
-        HStack(spacing: 0) {
-            Menu("File") {
-                Button("Open") { open(selection) }.disabled(selection.isEmpty)
-                Button("Open Path") { reveal(selection) }.disabled(selection.isEmpty)
-                Divider()
-                Button("Export…") { export() }
-                Divider()
-                Button("Exit") { NSApp.terminate(nil) }
-            }
-            Menu("Edit") {
-                Button("Copy") { copyFiles(selection) }.keyboardShortcut("c").disabled(selection.isEmpty)
-                Button("Copy Full Name to Clipboard") { copy(selection) }.disabled(selection.isEmpty)
-                Button("Select All") { selection = Set(results.map(\.path)) }.keyboardShortcut("a")
-                Divider()
-                Button("Rename…") { beginRename(selection) }.disabled(selection.count != 1)
-                Button("Delete…") { trashSelection = selection; confirmTrash = true }.disabled(selection.isEmpty)
-            }
-            Menu("View") {
-                Toggle("Filter Bar", isOn: $showFilterBar)
-                Toggle("Status Bar", isOn: $showStatusBar)
-                Toggle("Show Hidden Files", isOn: $showHidden)
-                Divider()
-                Toggle("Preview", isOn: $previewPane)
-                Button("Refresh") { index.rebuild() }.keyboardShortcut("r")
-                Button("Zoom In") { resultFontSize = min(22, resultFontSize + 1) }
-                Button("Zoom Out") { resultFontSize = max(9, resultFontSize - 1) }
-            }
-            Menu("Search") {
-                Toggle("Match Case", isOn: $caseSensitive)
-                Toggle("Match Whole Word", isOn: $wholeWord)
-                Toggle("Match Path", isOn: $matchPath)
-                Toggle("Enable Regex", isOn: $regex)
-                Divider()
-                ForEach(categories, id: \.self) { item in Button((category == item ? "✓ " : "") + item) { category = item } }
-                Divider()
-                Button("Advanced Search…") { advanced = true }
-            }
-            Menu("Bookmarks") {
-                Button("Add to Bookmarks…") { saveBookmark() }.keyboardShortcut("d")
-                ForEach(bookmarks, id: \.self) { saved in Button(saved) { restoreBookmark(saved) } }
-                Divider()
-                Button("Clear Bookmarks") { bookmarks = []; UserDefaults.standard.removeObject(forKey: "bookmarks"); UserDefaults.standard.removeObject(forKey: "bookmarkPresets") }
-            }
-            Menu("Tools") {
-                Button("Options…") { options = true }.keyboardShortcut(",")
-                Button("Indexing Details…") { diagnostics = true }
-            }
-            Menu("Help") {
-                Button("Search Syntax") { help = true }
-                Button("About Anyseek") { error = "Anyseek 0.3.0\nIndependent macOS implementation. Classic interface reference: Everything 1.4.\nNot affiliated with voidtools." }
-            }
-            Spacer(minLength: 0)
-        }.menuStyle(ClassicMenuStyle()).fixedSize(horizontal: false, vertical: true)
-        .font(.system(size: 12)).padding(.horizontal, 5).padding(.vertical, 2)
+    private var classicMenuBar: some View { NativeMenuBar(menus: nativeMenus).frame(height: 24) }
+    private var nativeMenus: [NSMenu] {
+        func menu(_ title: String, _ items: [NSMenuItem]) -> NSMenu {
+            let result = NSMenu(title: title); result.autoenablesItems = false
+            items.forEach { result.addItem($0) }; return result
+        }
+        func command(_ title: String, checked: Bool = false, enabled: Bool = true, _ action: @escaping () -> Void) -> NSMenuItem { MenuCommand(title, checked: checked, enabled: enabled, action: action) }
+        return [
+            menu("File", [command("Open", enabled: !selection.isEmpty) { open(selection) }, command("Open Path", enabled: !selection.isEmpty) { reveal(selection) }, .separator(), command("Export…") { export() }, .separator(), command("Exit") { NSApp.terminate(nil) }]),
+            menu("Edit", [command("Copy", enabled: !selection.isEmpty) { copyFiles(selection) }, command("Copy Full Name to Clipboard", enabled: !selection.isEmpty) { copy(selection) }, command("Select All") { selection = Set(results.map(\.path)) }, .separator(), command("Rename…", enabled: selection.count == 1) { beginRename(selection) }, command("Delete…", enabled: !selection.isEmpty) { trashSelection = selection; confirmTrash = true }]),
+            menu("View", [command("Filter Bar", checked: showFilterBar) { showFilterBar.toggle() }, command("Status Bar", checked: showStatusBar) { showStatusBar.toggle() }, command("Show Hidden Files", checked: showHidden) { showHidden.toggle() }, .separator(), command("Preview", checked: previewPane) { previewPane.toggle() }, command("Refresh") { index.rebuild() }, command("Zoom In") { resultFontSize = min(22, resultFontSize + 1) }, command("Zoom Out") { resultFontSize = max(9, resultFontSize - 1) }]),
+            menu("Search", [command("Match Case", checked: caseSensitive) { caseSensitive.toggle() }, command("Match Whole Word", checked: wholeWord) { wholeWord.toggle() }, command("Match Path", checked: matchPath) { matchPath.toggle() }, command("Enable Regex", checked: regex) { regex.toggle() }, .separator()] + categories.map { item in command(item, checked: category == item) { category = item } } + [.separator(), command("Advanced Search…") { advanced = true }]),
+            menu("Bookmarks", [command("Add to Bookmarks…") { saveBookmark() }] + bookmarks.map { saved in command(saved) { restoreBookmark(saved) } } + [.separator(), command("Clear Bookmarks") { bookmarks = []; UserDefaults.standard.removeObject(forKey: "bookmarks"); UserDefaults.standard.removeObject(forKey: "bookmarkPresets") }]),
+            menu("Tools", [command("Options…") { options = true }, command("Indexing Details…") { diagnostics = true }]),
+            menu("Help", [command("Search Syntax") { help = true }, command("About Anyseek") { error = "Anyseek 0.3.1\nIndependent macOS file search." }])
+        ]
     }
     private func search() async {
         do { try await Task.sleep(nanoseconds: 100_000_000) } catch { return }

@@ -16,18 +16,22 @@ actor IndexEngine {
         let opened = try IndexDatabase(url: cache.appendingPathComponent("index.sqlite")); database = opened; return opened
     }
     func load() throws -> [FileRecord] { try db().load() }
-    func scan(scopes: [String], roots: [String], excluded: [String], progress: @escaping @Sendable (Int) -> Void) throws -> ScanResult {
+    func scan(scopes: [String], roots: [String], excluded: [String], progress: @escaping @Sendable (Int) -> Void, snapshot: (@Sendable ([FileRecord]) -> Void)? = nil) throws -> ScanResult {
         let fm = FileManager.default
         let old = try db().load()
         var issues: [String] = []; var collected: [String: FileRecord] = [:]; var completed: [String] = []
         let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey]
         func excludedPath(_ path: String) -> Bool { PathScope.contains(cache.path, path) || excluded.contains { PathScope.contains($0, path) } }
+        var lastSnapshot = Date.distantPast
         func record(_ url: URL) throws {
             let values = try url.resourceValues(forKeys: keys)
             collected[url.path] = FileRecord(path: url.path, isDirectory: values.isDirectory ?? false, size: Int64(values.fileSize ?? 0), modified: values.contentModificationDate ?? .distantPast)
-            if collected.count % 2000 == 0 { progress(collected.count) }
+            if collected.count % 2000 == 0 {
+                progress(collected.count)
+                if Date().timeIntervalSince(lastSnapshot) > 1 { lastSnapshot = Date(); snapshot?(Array(collected.values)) }
+            }
         }
-        for path in PathScope.compact(scopes) {
+        for path in (scopes.contains("/") ? ["/"] : []) + PathScope.compact(scopes.filter { $0 != "/" }) {
             try Task.checkCancellation()
             // An unavailable root is retained, so unplugging a drive never erases its catalogue.
             if roots.contains(where: { PathScope.contains($0, path) && !fm.isReadableFile(atPath: $0) }) {
@@ -46,6 +50,7 @@ actor IndexEngine {
                 }) {
                     for case let item as URL in iterator {
                         try Task.checkCancellation()
+                        if path == "/" && (PathScope.contains("/Volumes", item.path) || PathScope.contains("/System/Volumes", item.path) || PathScope.contains("/dev", item.path)) { iterator.skipDescendants(); continue }
                         if excludedPath(item.path) { iterator.skipDescendants(); continue }
                         do {
                             let values = try item.resourceValues(forKeys: [.isSymbolicLinkKey])
@@ -60,6 +65,9 @@ actor IndexEngine {
             completed.append(path)
         }
         try Task.checkCancellation()
+        if completed.contains("/") {
+            for item in old where item.path.hasPrefix("/Volumes/") && roots.contains(where: { $0 != "/" && PathScope.contains($0, item.path) && !completed.contains($0) }) { collected[item.path] = item }
+        }
         let removed = old.filter { item in !roots.contains(where: { PathScope.contains($0, item.path) }) || excludedPath(item.path) }.map(\.path)
         try db().replace(scopes: PathScope.compact(completed + removed), records: Array(collected.values))
         return ScanResult(files: try db().load(), issues: Array(issues.prefix(200)))
@@ -81,23 +89,43 @@ actor IndexEngine {
     private var paused = false
     private var cache: URL
     private let engine: IndexEngine
+    private let automaticVolumes: Bool
     private var volumeObservers: [NSObjectProtocol] = []
     init(cacheURL: URL? = nil, selectedRoots: [String]? = nil) {
+        automaticVolumes = selectedRoots == nil
         cache = cacheURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Anyseek")
         cache = URL(fileURLWithPath: PathScope.canonical(cache.path))
         engine = IndexEngine(cache: cache)
-        if let selectedRoots { roots = selectedRoots }
-        roots = PathScope.compact(roots.map { PathScope.canonical($0) })
+        if let selectedRoots { roots = selectedRoots } else { roots = detectedVolumes() }
+        roots = Array(Set(roots.map { PathScope.canonical($0) })).sorted()
         excluded = PathScope.compact(excluded.map { PathScope.canonical($0) })
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification, NSWorkspace.didWakeNotification] {
-            volumeObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in Task { @MainActor [weak self] in self?.watch(); self?.rebuild() } })
+            volumeObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in Task { @MainActor [weak self] in self?.refreshVolumes(); self?.watch(); self?.rebuild() } })
         }
         Task {
             do { files = try await engine.load(); revision += 1 } catch { issues = [error.localizedDescription] }
             watch()
             if roots.isEmpty { status = "Add folders to start searching" } else { rebuild() }
         }
+    }
+    private func detectedVolumes() -> [String] {
+        let keys: [URLResourceKey] = [.volumeIsLocalKey, .volumeIsBrowsableKey]
+        let volumes = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? []
+        let paths = volumes.compactMap { url -> String? in
+            let path = url.path
+            guard path.hasPrefix("/Volumes/"), !path.hasPrefix("/Volumes/."),
+                  let info = try? url.resourceValues(forKeys: Set(keys)), info.volumeIsLocal != false else { return nil }
+            return PathScope.canonical(path)
+        }
+        return ["/"] + Array(Set(paths)).sorted()
+    }
+    private func refreshVolumes() {
+        guard automaticVolumes else { return }
+        roots = detectedVolumes()
+        // Hide disconnected volumes immediately; the next scan reconciles storage.
+        files.removeAll { file in file.path.hasPrefix("/Volumes/") && !roots.dropFirst().contains(where: { PathScope.contains($0, file.path) }) }
+        revision += 1
     }
     func shutdown() {
         job?.cancel(); pending?.cancel()
@@ -125,9 +153,16 @@ actor IndexEngine {
         indexing = true; status = "Indexing…"
         job = Task {
             do {
-                let result = try await engine.scan(scopes: selectedRoots.isEmpty ? [] : scopes, roots: selectedRoots, excluded: exclusions) { [weak self] count in
+                let initiallyEmpty = files.isEmpty
+                let result = try await engine.scan(scopes: selectedRoots.isEmpty ? [] : scopes, roots: selectedRoots, excluded: exclusions, progress: { [weak self] count in
                     Task { @MainActor [weak self] in if self?.indexing == true { self?.status = "Indexing… \(count.formatted()) objects" } }
-                }
+                }, snapshot: { [weak self] partial in
+                    guard initiallyEmpty else { return }
+                    Task { @MainActor [weak self] in
+                        guard let self, self.indexing else { return }
+                        self.files = partial; self.revision += 1
+                    }
+                })
                 files = result.files; issues = result.issues; revision += 1
                 status = "\(files.count.formatted()) indexed" + (issues.isEmpty ? "" : " · \(issues.count) issues")
             } catch is CancellationError { status = "Indexing paused · cached results available" }

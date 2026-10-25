@@ -136,9 +136,3 @@ struct ClassicTableStyle: NSViewRepresentable {
         }
     }
 }
-
-struct ClassicMenuStyle: MenuStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        Menu(configuration).menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-    }
-}
