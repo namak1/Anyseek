@@ -214,7 +214,7 @@ struct SearchWindow: View {
                 Button("About Anyseek") { error = "Anyseek 0.3.0\nIndependent macOS implementation. Classic interface reference: Everything 1.4.\nNot affiliated with voidtools." }
             }
             Spacer(minLength: 0)
-        }.menuStyle(.borderlessButton).fixedSize(horizontal: false, vertical: true)
+        }.menuStyle(ClassicMenuStyle()).fixedSize(horizontal: false, vertical: true)
         .font(.system(size: 12)).padding(.horizontal, 5).padding(.vertical, 2)
     }
     private func search() async {

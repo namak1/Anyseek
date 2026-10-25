@@ -121,7 +121,7 @@ struct ClassicTableStyle: NSViewRepresentable {
     let fontSize: Double
     func makeNSView(context: Context) -> NSView { NSView() }
     func updateNSView(_ view: NSView, context: Context) {
-        DispatchQueue.main.async {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             guard let content = view.window?.contentView else { return }
             func apply(_ parent: NSView) {
                 if let table = parent as? NSTableView {
@@ -134,5 +134,11 @@ struct ClassicTableStyle: NSViewRepresentable {
             }
             apply(content)
         }
+    }
+}
+
+struct ClassicMenuStyle: MenuStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Menu(configuration).menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
     }
 }
