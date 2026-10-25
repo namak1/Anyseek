@@ -12,7 +12,7 @@ import AnyseekCore
     }
     static func integrationTest() async throws {
         let fm = FileManager.default
-        let base = fm.temporaryDirectory.appendingPathComponent("Anyseek-test-" + UUID().uuidString)
+        let base = fm.temporaryDirectory.appendingPathComponent("Anyseek-test-" + UUID().uuidString).resolvingSymlinksInPath()
         defer { try? fm.removeItem(at: base) }
         let root = base.appendingPathComponent("files"), cache = base.appendingPathComponent("cache")
         try fm.createDirectory(at: root.appendingPathComponent("nested"), withIntermediateDirectories: true)
@@ -23,7 +23,7 @@ import AnyseekCore
             if !value { throw NSError(domain: "Anyseek.SelfTest", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
         }
         var result = try await engine.scan(scopes: [root.path], roots: [root.path], excluded: [], progress: { _ in })
-        try require(result.files.contains { $0.path == original.path }, "Initial scan missing file")
+        try require(result.files.contains { $0.path == original.path }, "Initial scan missing file: \(original.path); found \(result.files.map(\.path)); issues \(result.issues)")
         let renamed = root.appendingPathComponent("nested/renamed.txt")
         try fm.moveItem(at: original, to: renamed)
         result = try await engine.scan(scopes: [original.path, renamed.path], roots: [root.path], excluded: [], progress: { _ in })
@@ -43,6 +43,7 @@ import AnyseekCore
         let cached = try await reopened.load()
         try require(cached == result.files, "Persistence failed")
         let cancelled = Task {
+            try await Task.sleep(nanoseconds: 10_000_000)
             try Task.checkCancellation()
             return try await engine.scan(scopes: [root.path], roots: [root.path], excluded: [], progress: { _ in })
         }

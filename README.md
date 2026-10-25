@@ -1,42 +1,78 @@
 # Anyseek
 
-**Every file. Instantly.** A native macOS file search application, independently implemented with Everything as the reference for search behaviour and a compact table interface.
+**Every file. Instantly.** Native, offline macOS file search with an independent index and an Everything-style compact results table.
 
-## Current version: 0.1.0 — first functional foundation
+## Download and install
 
-Requires macOS 13 or later. No account, server, or Spotlight index is needed. Choose **Add Folders** on first launch to select your search locations.
+Requires **macOS 13 or later**. The ZIP contains a **universal application for Apple Silicon and Intel**.
 
-- Search as you type; sortable Name, Path, Size, Date Modified columns.
-- File type filters, case/path matching, quoted phrases, AND (spaces), OR (`|`), exclusions (`!`), wildcards and `regex:`.
-- `ext:pdf;docx`, `file:`, `folder:`, `path:`, `size:>100mb`, `size:<1gb`, `dm:today`.
-- Open results, reveal in Finder, copy paths, and CSV export.
-- Saved search bookmarks and configurable indexed folders.
-- Persistent local index in `~/Library/Application Support/Anyseek/index.json`.
-- FSEvents monitoring triggers debounced background rescans. Cached results load at startup, then refresh.
-- Inaccessible paths and index-save failures appear in the status bar.
+1. Open [GitHub Actions](https://github.com/namak1/Anyseek/actions), choose a successful **macOS Build**, and download **Anyseek-macos-universal** under Artifacts.
+2. Extract the artifact, then `Anyseek-macos.zip`. Drag **Anyseek.app** into Applications.
+3. Launch Anyseek and choose **Add Folders**. Select your home folder or the drives you want indexed.
+4. Type a filename or search expression. Indexing runs in the background; subsequent launches load the saved catalogue.
 
-## Build and run
+The app is ad-hoc signed, not Apple-notarized. If macOS blocks it, use **System Settings → Privacy & Security → Open Anyway** after reviewing the download source. Some protected folders require permission in Privacy & Security; the app reports inaccessible locations rather than bypassing restrictions.
+
+## Working features in 0.2.0
+
+- Search as you type with Name, Path, Size, Date Modified columns and reversible column sorting.
+- Case, whole-word, full-path and regular-expression modes; file-type and hidden-file filters.
+- Boolean AND/OR/NOT, grouped expressions, quoted phrases, wildcard matching, extension/path/size/date filters.
+- SQLite index with atomic transactions; cached startup and background filesystem monitoring.
+- Updates affected paths, reconciles changed subtrees, and performs a full reconciliation after wake/mount or dropped events.
+- Keeps cached records for offline roots; reports access failures, with pause, refresh, and exclusion controls.
+- Open files, reveal in Finder, copy paths/files, drag filenames out, rename, and move to Trash with confirmation.
+- Quick Look preview, file details, CSV export, bookmarks and recent searches.
+- Menu-bar access, **Control–Option–Space** global shortcut, and optional launch at login.
+- UTF-8 text content search (files up to 16 MB), performed on demand.
+
+All search/index data stays on your Mac. No account, cloud service, or Spotlight index is required. Closing the window keeps monitoring running; choose **Quit Anyseek** from its menu-bar icon to stop it.
+
+## Search examples
+
+| Query | Meaning |
+| --- | --- |
+| `flora invoice` | Both words in the filename |
+| `"Flora invoice"` | Exact phrase |
+| `<*.pdf \| *.docx> !draft` | PDFs or Word files excluding draft |
+| `ext:jpg;jpeg;png` | Any of these extensions |
+| `folder:photos` | Folders containing photos |
+| `path:/Documents invoice` | Invoice names under matching paths |
+| `parent:/Users/sam/Downloads` | Direct children only |
+| `size:>100mb` | Files larger than 100 MiB |
+| `size:1mb..10mb` | Inclusive size range |
+| `dm:today`, `dm:yesterday`, `dm:7days` | Modified date filters |
+| `dm:2026-01-01..2026-12-31` | Inclusive date range |
+| `regex:"^Report[0-9]+"` | Regex against names (or paths with Match Path) |
+| `*.txt content:"shipping notice"` | Read text inside matching files |
+
+Spaces mean AND, `|` means OR, `!` means NOT, and `< >` group expressions. Quote regex patterns containing operator characters. Size units use powers of 1024. Invalid expressions display an error instead of silently showing incorrect matches.
+
+### Keyboard and file actions
+
+- **Control–Option–Space:** show/focus Anyseek globally.
+- **Command–F:** focus search; **Command–R:** refresh the index.
+- **Return in search:** open the selection, or the first result.
+- With the results table focused: **Space** previews, **Return** opens, **Command–C** copies files, **Command–Delete** asks to move the selection to Trash.
+- Right-click results for all file actions. Rename never overwrites an existing destination.
+
+## Build and validation
 
 Install Xcode Command Line Tools, then:
 
 ```sh
 swift test
+swift run Anyseek --self-test
 bash scripts/build-app.sh
 open dist/Anyseek.app
 ```
 
-GitHub Actions builds an Apple Silicon app ZIP on macOS. Open the repository's Actions tab, select a successful **macOS Build** run, and download its artifact. Builds are ad-hoc signed, not Apple-notarized; macOS may require an explicit Open action. No notarization credentials are included.
+GitHub Actions runs parser/database tests, a real-filesystem lifecycle integration check, and the universal release build. Packaging verifies both CPU architectures, the property list and the ad-hoc code signature. A SHA-256 checksum accompanies the ZIP.
 
-## Scope and parity
+The index is stored at `~/Library/Application Support/Anyseek/index.sqlite`; folder preferences, bookmarks and history are in the app's user defaults. The old JSON index is no longer used; configured roots are rebuilt automatically on upgrade.
 
-This is the first implementation, **not yet an indistinguishable or feature-complete Everything replacement**. Current indexing enumerates selected folders and stores JSON; change events rescan selected roots rather than updating individual records. Million-file performance is not yet benchmarked. Network and disconnected-drive handling need further work; unavailable roots are removed from the active results on refresh. File contents are not searched.
+## Current limits
 
-Next milestones:
+This is a working file-search application, **not a claim of complete or indistinguishable Everything parity**. Windows-specific features and undocumented query functions are not implemented. PDF/Word content extraction, duplicate detection, batch rename, a CLI, and network search servers are not included. Text content search is limited to UTF-8 files up to 16 MB. Symlink directories are not traversed. Disconnected entries remain searchable but cannot be opened until their volume returns. File operations use filesystem permissions and do not override them.
 
-1. Transactional database and incremental per-path updates, cancellation and indexing progress.
-2. Everything 1.4 reference inventory, matching menus/dialogs/settings and side-by-side acceptance checks.
-3. Full query grammar (grouping, ranges and additional functions), preview, multi-selection file actions and history.
-4. Global shortcut, login/background behaviour, external-volume lifecycle and recovery tests.
-5. Performance benchmarks, Intel build, app icon, signed/notarized distribution.
-
-macOS permissions constrain coverage. The app does not bypass access restrictions; add locations explicitly and review Privacy & Security settings if needed. There is no claim of affiliation with voidtools.
+Million-file latency and memory usage have not been benchmarked. Search scans an in-memory snapshot; SQLite provides durable storage. The native UI, global shortcut, and login integration should also be checked on the target Mac. No affiliation with voidtools is implied.

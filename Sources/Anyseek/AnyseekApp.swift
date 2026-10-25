@@ -88,6 +88,7 @@ struct SearchWindow: View {
                 TableColumn("Size", value: \.size) { Text($0.isDirectory ? "—" : ByteCountFormatter.string(fromByteCount: $0.size, countStyle: .file)) }.width(85)
                 TableColumn("Date Modified", value: \.modified) { Text($0.modified.formatted(date: .numeric, time: .shortened)) }.width(145)
             }
+            .background(ResultKeyHandler(open: { open(selection) }, preview: { if !selection.isEmpty { preview = true } }, copy: { copyFiles(selection) }, trash: { if !selection.isEmpty { trashSelection = selection; confirmTrash = true } }))
             .contextMenu(forSelectionType: String.self) { ids in
                 Button("Open") { open(ids) }.disabled(ids.isEmpty)
                 Button("Reveal in Finder") { reveal(ids) }.disabled(ids.isEmpty)
@@ -210,11 +211,6 @@ struct SearchWindow: View {
     private func copyFiles(_ ids: Set<String>) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.writeObjects(ids.sorted().map { NSURL(fileURLWithPath: $0) })
-    }
-    private func info(_ ids: Set<String>) {
-        let urls = ids.map { URL(fileURLWithPath: $0) }
-        NSWorkspace.shared.activateFileViewerSelecting(urls)
-        // Finder's own inspector is available through its native context menu.
     }
     private func beginRename(_ ids: Set<String>) {
         guard ids.count == 1, let path = ids.first else { return }

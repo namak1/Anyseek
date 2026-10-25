@@ -99,8 +99,8 @@ actor IndexEngine {
         let panel = NSOpenPanel(); panel.canChooseFiles = false; panel.canChooseDirectories = true; panel.allowsMultipleSelection = true
         panel.prompt = exclude ? "Exclude" : "Index"
         guard panel.runModal() == .OK else { return }
-        if exclude { excluded = PathScope.compact(excluded + panel.urls.map(\.path)); UserDefaults.standard.set(excluded, forKey: "excluded") }
-        else { roots = PathScope.compact(roots + panel.urls.map(\.path)); UserDefaults.standard.set(roots, forKey: "roots") }
+        if exclude { excluded = PathScope.compact(excluded + panel.urls.map { $0.resolvingSymlinksInPath().path }); UserDefaults.standard.set(excluded, forKey: "excluded") }
+        else { roots = PathScope.compact(roots + panel.urls.map { $0.resolvingSymlinksInPath().path }); UserDefaults.standard.set(roots, forKey: "roots") }
         watch(); restart()
     }
     func removeRoot(_ root: String) { roots.removeAll { $0 == root }; UserDefaults.standard.set(roots, forKey: "roots"); watch(); restart() }

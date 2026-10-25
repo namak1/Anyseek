@@ -49,3 +49,29 @@ struct FilePreview: NSViewRepresentable {
     func updateNSView(_ view: QLPreviewView, context: Context) { view.previewItem = NSURL(fileURLWithPath: path) }
     static func dismantleNSView(_ view: QLPreviewView, coordinator: ()) { view.close() }
 }
+
+/// Table-only key handling: typing spaces in the search field remains untouched.
+struct ResultKeyHandler: NSViewRepresentable {
+    let open: () -> Void
+    let preview: () -> Void
+    let copy: () -> Void
+    let trash: () -> Void
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak view] event in
+            guard let window = view?.window, window == event.window,
+                  !(window.firstResponder is NSTextView), !(window.firstResponder is NSTextField) else { return event }
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if event.keyCode == 49 && modifiers.isEmpty { preview(); return nil }
+            if event.keyCode == 36 && modifiers.isEmpty { open(); return nil }
+            if event.keyCode == 8 && modifiers == .command { copy(); return nil }
+            if event.keyCode == 51 && modifiers == .command { trash(); return nil }
+            return event
+        }
+        return view
+    }
+    func updateNSView(_ view: NSView, context: Context) { }
+    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) { if let monitor = coordinator.monitor { NSEvent.removeMonitor(monitor) } }
+    final class Coordinator { var monitor: Any? }
+}
