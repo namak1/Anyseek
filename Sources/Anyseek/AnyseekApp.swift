@@ -16,7 +16,7 @@ struct AnyseekApp: App {
 }
 struct SearchWindow: View {
     @EnvironmentObject var index: IndexStore
-    @State private var query = ""
+    @AppStorage("lastQuery") private var query = ""
     @State private var wholeWord = false
     @State private var regex = false
     @State private var queryError: String?
@@ -61,11 +61,11 @@ struct SearchWindow: View {
                 Spacer()
                 Menu("Bookmarks") {
                     Button("Bookmark Current Search") {
-                        if !query.isEmpty && !bookmarks.contains(query) { bookmarks.append(query); UserDefaults.standard.set(bookmarks, forKey: "bookmarks") }
+                        saveBookmark()
                     }
-                    ForEach(bookmarks, id: \.self) { saved in Button(saved) { query = saved } }
+                    ForEach(bookmarks, id: \.self) { saved in Button(saved) { restoreBookmark(saved) } }
                     Divider()
-                    Button("Clear Bookmarks") { bookmarks = []; UserDefaults.standard.removeObject(forKey: "bookmarks") }
+                    Button("Clear Bookmarks") { bookmarks = []; UserDefaults.standard.removeObject(forKey: "bookmarks"); UserDefaults.standard.removeObject(forKey: "bookmarkPresets") }
                 }.frame(width: 110)
             }.toggleStyle(.checkbox).font(.system(size: 11)).padding(.horizontal, 12).padding(.vertical, 6)
             if let queryError { Text(queryError).foregroundStyle(.red).font(.caption).padding(6) }
@@ -80,7 +80,7 @@ struct SearchWindow: View {
             Table(results, selection: $selection, sortOrder: $sortOrder) {
                 TableColumn("Name", value: \.name) { file in
                     HStack(spacing: 6) {
-                        Image(systemName: file.isDirectory ? "folder.fill" : "doc").foregroundStyle(file.isDirectory ? .blue : .secondary)
+                        Image(nsImage: NSWorkspace.shared.icon(forFile: file.path)).resizable().frame(width: 16, height: 16)
                         Text(file.name).lineLimit(1).help(file.path).onDrag { NSItemProvider(object: URL(fileURLWithPath: file.path) as NSURL) }
                     }
                 }.width(min: 180, ideal: 260)
@@ -203,6 +203,25 @@ struct SearchWindow: View {
     private func open(_ ids: Set<String>) { rememberSearch(); for path in ids { if !NSWorkspace.shared.open(URL(fileURLWithPath: path)) { error = "Could not open \(path)" } } }
     private func reveal(_ ids: Set<String>) { NSWorkspace.shared.activateFileViewerSelecting(ids.map { URL(fileURLWithPath: $0) }) }
     private func copy(_ ids: Set<String>) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(ids.sorted().joined(separator: "\n"), forType: .string) }
+    private struct Preset: Codable {
+        var category: String; var matchCase: Bool; var matchPath: Bool; var wholeWord: Bool; var regex: Bool
+    }
+    private func saveBookmark() {
+        guard !query.isEmpty else { return }
+        if !bookmarks.contains(query) { bookmarks.append(query) }
+        UserDefaults.standard.set(bookmarks, forKey: "bookmarks")
+        let preset = Preset(category: category, matchCase: caseSensitive, matchPath: matchPath, wholeWord: wholeWord, regex: regex)
+        if let data = try? JSONEncoder().encode(preset) {
+            var presets = UserDefaults.standard.dictionary(forKey: "bookmarkPresets") ?? [:]
+            presets[query] = data; UserDefaults.standard.set(presets, forKey: "bookmarkPresets")
+        }
+    }
+    private func restoreBookmark(_ saved: String) {
+        query = saved
+        guard let data = UserDefaults.standard.dictionary(forKey: "bookmarkPresets")?[saved] as? Data,
+              let preset = try? JSONDecoder().decode(Preset.self, from: data) else { return }
+        category = preset.category; caseSensitive = preset.matchCase; matchPath = preset.matchPath; wholeWord = preset.wholeWord; regex = preset.regex
+    }
     private func rememberSearch() {
         guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         history.removeAll { $0 == query }; history.insert(query, at: 0); history = Array(history.prefix(50))

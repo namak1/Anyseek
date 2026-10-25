@@ -10,7 +10,7 @@ import AnyseekCore
         }
         AnyseekApp.main()
     }
-    static func integrationTest() async throws {
+    @MainActor static func integrationTest() async throws {
         let fm = FileManager.default
         let base = URL(fileURLWithPath: PathScope.canonical(fm.temporaryDirectory.path)).appendingPathComponent("Anyseek-test-" + UUID().uuidString)
         defer { try? fm.removeItem(at: base) }
@@ -51,5 +51,26 @@ import AnyseekCore
         do { _ = try await cancelled.value; throw NSError(domain: "Anyseek.SelfTest", code: 1) } catch is CancellationError { }
         result = try await engine.scan(scopes: [], roots: [], excluded: [], progress: { _ in })
         try require(result.files.isEmpty, "Removed root remains indexed")
+        // Exercise the actual FSEvents callback and debouncing, not just the scanner.
+        try fm.moveItem(at: offline, to: root)
+        let store = IndexStore(cacheURL: base.appendingPathComponent("watch-cache"), selectedRoots: [root.path])
+        defer { store.shutdown() }
+        func waitFor(_ condition: () -> Bool, _ message: String) async throws {
+            for _ in 0..<150 {
+                if condition() { return }
+                try await Task.sleep(nanoseconds: 100_000_000)
+            }
+            try require(false, message)
+        }
+        try await waitFor({ !store.indexing && !store.files.isEmpty }, "Watcher initial scan timed out")
+        let watched = root.appendingPathComponent("watch.txt")
+        try "watch".write(to: watched, atomically: true, encoding: .utf8)
+        try await waitFor({ store.files.contains { $0.path == watched.path } }, "FSEvents did not index created file")
+        let moved = root.appendingPathComponent("watch-renamed.txt")
+        try fm.moveItem(at: watched, to: moved)
+        try await waitFor({ store.files.contains { $0.path == moved.path } && !store.files.contains { $0.path == watched.path } }, "FSEvents rename failed")
+        try fm.removeItem(at: moved)
+        try await waitFor({ !store.files.contains { $0.path == moved.path } }, "FSEvents deletion failed")
+        print("PASS: live FSEvents create/rename/delete")
     }
 }

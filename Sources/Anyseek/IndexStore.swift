@@ -82,10 +82,11 @@ actor IndexEngine {
     private var cache: URL
     private let engine: IndexEngine
     private var volumeObservers: [NSObjectProtocol] = []
-    init() {
-        cache = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Anyseek")
+    init(cacheURL: URL? = nil, selectedRoots: [String]? = nil) {
+        cache = cacheURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Anyseek")
         cache = URL(fileURLWithPath: PathScope.canonical(cache.path))
         engine = IndexEngine(cache: cache)
+        if let selectedRoots { roots = selectedRoots }
         roots = PathScope.compact(roots.map { PathScope.canonical($0) })
         excluded = PathScope.compact(excluded.map { PathScope.canonical($0) })
         let center = NSWorkspace.shared.notificationCenter
@@ -97,6 +98,12 @@ actor IndexEngine {
             watch()
             if roots.isEmpty { status = "Add folders to start searching" } else { rebuild() }
         }
+    }
+    func shutdown() {
+        job?.cancel(); pending?.cancel()
+        if let stream { FSEventStreamStop(stream); FSEventStreamInvalidate(stream); FSEventStreamRelease(stream); self.stream = nil }
+        for observer in volumeObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+        volumeObservers.removeAll()
     }
     func chooseFolders(exclude: Bool = false) {
         let panel = NSOpenPanel(); panel.canChooseFiles = false; panel.canChooseDirectories = true; panel.allowsMultipleSelection = true
