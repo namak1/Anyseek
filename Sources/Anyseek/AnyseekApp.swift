@@ -146,7 +146,7 @@ struct SearchWindow: View {
             Button("Cancel", role: .cancel) { }
         }
         .alert("Anyseek", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
-        .task(id: searchIdentity) { await search() }
+        .task(id: searchIdentity) { await followIndex() }
         .onChange(of: options) { visible in if !visible { history = UserDefaults.standard.stringArray(forKey: "history") ?? [] } }
         .onAppear { query = ""; category = "Everything"; hideEmptyResults = false; searchFocused = true }
         .onReceive(NotificationCenter.default.publisher(for: .anyseekFocus)) { _ in searchFocused = true }
@@ -169,7 +169,20 @@ struct SearchWindow: View {
         ]
     }
     private var searchIdentity: String {
-        [query, category, String(caseSensitive), String(matchPath), String(index.revision), String(wholeWord), String(regex), String(showHidden), String(hideEmptyResults), sortColumn.rawValue, String(sortDescending), String(index.liveRevision)].joined(separator: "\0")
+        [query, category, String(caseSensitive), String(matchPath), String(wholeWord), String(regex), String(showHidden), String(hideEmptyResults), sortColumn.rawValue, String(sortDescending)].joined(separator: "\0")
+    }
+    /// User input cancels obsolete queries. Disk activity never cancels a query:
+    /// publish its snapshot, then catch up to the newest index revision.
+    private func followIndex() async {
+        var publishedRevision = -1, publishedLiveRevision = -1
+        while !Task.isCancelled {
+            if publishedRevision != index.revision || publishedLiveRevision != index.liveRevision {
+                let revision = index.revision, liveRevision = index.liveRevision
+                await search()
+                publishedRevision = revision; publishedLiveRevision = liveRevision
+            }
+            do { try await Task.sleep(nanoseconds: 100_000_000) } catch { return }
+        }
     }
     private func search() async {
         let files = index.files, text = query, selectedCategory = category, sensitive = caseSensitive, path = matchPath, whole = wholeWord, regular = regex, hidden = showHidden

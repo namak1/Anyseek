@@ -108,7 +108,17 @@ actor IndexEngine {
         if let selectedRoots { roots = selectedRoots } else { roots = detectedVolumes() }
         roots = Array(Set(roots.map { PathScope.canonical($0) })).sorted()
         excluded = PathScope.compact(excluded.map { PathScope.canonical($0) })
-        if let benchmarkFiles { files = benchmarkFiles; revision = 1; status = "Performance fixture"; return }
+        if let benchmarkFiles {
+            files = benchmarkFiles; revision = 1; status = "Performance fixture"
+            // Reproduce a busy disk: updates arrive faster than a million-row search.
+            Task { [weak self] in
+                while let self {
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                    self.liveRevision += 1
+                }
+            }
+            return
+        }
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification, NSWorkspace.didWakeNotification] {
             volumeObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in Task { @MainActor [weak self] in self?.refreshVolumes(); self?.watch(); self?.rebuild() } })
