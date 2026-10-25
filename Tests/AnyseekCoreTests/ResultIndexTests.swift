@@ -28,3 +28,20 @@ final class ResultIndexTests: XCTestCase {
         print("SORT BENCHMARK 1000000: initial=\(prepared.timeIntervalSince(start))s cached+reverse=\(Date().timeIntervalSince(prepared))s")
     }
 }
+extension ResultIndexTests {
+    func testLiveDeletionAndUpdatesKeepSortedCaches() async throws {
+        let a = FileRecord(path: "/folder/a", isDirectory: false, size: 1, modified: .distantPast)
+        let b = FileRecord(path: "/folder/b", isDirectory: false, size: 2, modified: .distantPast)
+        let engine = ResultIndex()
+        _ = try await engine.results(files: [a,b], revision: 1, signature: "", column: .size, descending: false) { _ in true }
+        try await engine.warm()
+        let removed = try await engine.results(files: [a,b], revision: 1, signature: "", column: .size, descending: false, liveToken: 1, removed: [a.path]) { _ in true }
+        XCTAssertEqual(removed.map(\.path), [b.path])
+        let c = FileRecord(path: "/folder/c", isDirectory: false, size: 0, modified: .distantPast)
+        let added = try await engine.results(files: [a,b], revision: 1, signature: "", column: .size, descending: false, liveToken: 2, removed: [a.path], updated: [c]) { _ in true }
+        XCTAssertEqual(added.map(\.path), [c.path,b.path])
+        // A stale full-scan snapshot must not resurrect a deleted subtree.
+        let stale = try await engine.results(files: [a,b], revision: 2, signature: "", column: .size, descending: false, liveToken: 2, removed: ["/folder"], updated: []) { _ in true }
+        XCTAssertTrue(stale.isEmpty)
+    }
+}

@@ -69,6 +69,7 @@ public final class IndexDatabase {
 }
 
 public enum PathScope {
+    public static func isTrash(_ path: String) -> Bool { path.split(separator: "/").contains { $0 == ".Trash" || $0 == ".Trashes" } }
     /// Resolve the existing ancestor with POSIX realpath. Foundation can shorten
     /// /private/var to /var while directory enumeration returns /private/var.
     public static func canonical(_ path: String) -> String {

@@ -16,19 +16,22 @@ actor IndexEngine {
         let opened = try IndexDatabase(url: cache.appendingPathComponent("index.sqlite")); database = opened; return opened
     }
     func load() throws -> [FileRecord] { try db().load() }
+    func persistLive(removed: [String], updated: [FileRecord]) throws {
+        try db().replace(scopes: removed, records: updated)
+    }
     func scan(scopes: [String], roots: [String], excluded: [String], progress: @escaping @Sendable (Int) -> Void, snapshot: (@Sendable ([FileRecord]) -> Void)? = nil) throws -> ScanResult {
         let fm = FileManager.default
         let old = try db().load()
         var issues: [String] = []; var collected: [String: FileRecord] = [:]; var completed: [String] = []
         let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey]
-        func excludedPath(_ path: String) -> Bool { PathScope.contains(cache.path, path) || excluded.contains { PathScope.contains($0, path) } }
+        func excludedPath(_ path: String) -> Bool { PathScope.isTrash(path) || PathScope.contains(cache.path, path) || excluded.contains { PathScope.contains($0, path) } }
         var lastSnapshot = Date.distantPast
         func record(_ url: URL) throws {
             let values = try url.resourceValues(forKeys: keys)
             collected[url.path] = FileRecord(path: url.path, isDirectory: values.isDirectory ?? false, size: Int64(values.fileSize ?? 0), modified: values.contentModificationDate ?? .distantPast)
             if collected.count % 2000 == 0 {
                 progress(collected.count)
-                if Date().timeIntervalSince(lastSnapshot) > 1 { lastSnapshot = Date(); snapshot?(Array(collected.values)) }
+                if Date().timeIntervalSince(lastSnapshot) > 5 { lastSnapshot = Date(); snapshot?(Array(collected.values)) }
             }
         }
         for path in (scopes.contains("/") ? ["/"] : []) + PathScope.compact(scopes.filter { $0 != "/" }) {
@@ -77,6 +80,9 @@ actor IndexEngine {
 @MainActor final class IndexStore: ObservableObject {
     @Published var files: [FileRecord] = []
     @Published var revision = 0
+    @Published var liveRevision = 0
+    private(set) var liveRemoved = Set<String>()
+    private(set) var liveUpdated: [String: FileRecord] = [:]
     @Published var status = "Loading index…"
     @Published var indexing = false
     @Published var issues: [String] = []
@@ -126,6 +132,54 @@ actor IndexEngine {
         // Hide disconnected volumes immediately; the next scan reconciles storage.
         files.removeAll { file in file.path.hasPrefix("/Volumes/") && !roots.dropFirst().contains(where: { PathScope.contains($0, file.path) }) }
         revision += 1
+    }
+    /// Publish immediately; persistence must never wait on or block the UI.
+    func containsLive(_ path: String) -> Bool {
+        if liveUpdated[path] != nil { return true }
+        if liveRemoved.contains(where: { PathScope.contains($0, path) }) { return false }
+        return files.contains { $0.path == path }
+    }
+    func applyLive(removed: [String], updated: [FileRecord] = []) {
+        for path in removed {
+            liveRemoved.insert(path)
+            liveUpdated = liveUpdated.filter { !PathScope.contains(path, $0.key) }
+        }
+        for file in updated { liveUpdated[file.path] = file }
+        liveRevision += 1
+        Task { do { try await engine.persistLive(removed: removed, updated: updated) } catch { issues.append(error.localizedDescription) } }
+    }
+    private func inspectLive(_ paths: [String], recursive: Set<String>) {
+        let selectedRoots = roots, exclusions = excluded, cachePath = cache.path
+        Task {
+            let patch = await Task.detached(priority: .userInitiated) { () -> ([String], [FileRecord]) in
+                let fm = FileManager.default
+                var removed: [String] = [], records: [FileRecord] = []
+                let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey]
+                func read(_ path: String) {
+                    guard !PathScope.isTrash(path), !PathScope.contains(cachePath, path), !exclusions.contains(where: { PathScope.contains($0, path) }) else { return }
+                    if let v = try? URL(fileURLWithPath: path).resourceValues(forKeys: keys) {
+                        records.append(FileRecord(path: path, isDirectory: v.isDirectory ?? false, size: Int64(v.fileSize ?? 0), modified: v.contentModificationDate ?? .distantPast))
+                    }
+                }
+                for path in Set(paths) {
+                    guard selectedRoots.contains(where: { PathScope.contains($0, path) }) else { continue }
+                    if !fm.fileExists(atPath: path) {
+                        // Only infer deletion when the parent remains accessible.
+                        if fm.isReadableFile(atPath: (path as NSString).deletingLastPathComponent) { removed.append(path) }
+                        continue
+                    }
+                    read(path)
+                    if recursive.contains(path), let iterator = fm.enumerator(at: URL(fileURLWithPath: path), includingPropertiesForKeys: Array(keys), options: []) {
+                        for case let item as URL in iterator {
+                            if exclusions.contains(where: { PathScope.contains($0, item.path) }) || PathScope.contains(cachePath, item.path) { iterator.skipDescendants(); continue }
+                            read(item.path)
+                        }
+                    }
+                }
+                return (removed, records)
+            }.value
+            if !patch.0.isEmpty || !patch.1.isEmpty { applyLive(removed: patch.0, updated: patch.1) }
+        }
     }
     func shutdown() {
         job?.cancel(); pending?.cancel()
@@ -178,23 +232,28 @@ actor IndexEngine {
         stream = FSEventStreamCreate(nil, { _, info, count, rawPaths, flags, _ in
             guard let info else { return }
             let owner = Unmanaged<IndexStore>.fromOpaque(info).takeUnretainedValue()
-            let paths = Unmanaged<CFArray>.fromOpaque(rawPaths).takeUnretainedValue() as! [String]
+            let raw = Unmanaged<CFArray>.fromOpaque(rawPaths).takeUnretainedValue() as! [String]
+            let paths = raw.map { path -> String in
+                let prefix = "/System/Volumes/Data"
+                return path.hasPrefix(prefix + "/") ? String(path.dropFirst(prefix.count)) : path
+            }
             let droppedMask = FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs | kFSEventStreamEventFlagUserDropped | kFSEventStreamEventFlagKernelDropped | kFSEventStreamEventFlagRootChanged)
             let full = (0..<count).contains { flags[$0] & droppedMask != 0 }
-            Task { @MainActor in owner.changed(paths, full: full) }
-        }, &context, roots as CFArray, FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 1, FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagWatchRoot | kFSEventStreamCreateFlagFileEvents))
+            let recursive = Set((0..<count).filter { flags[$0] & FSEventStreamEventFlags(kFSEventStreamEventFlagItemIsDir) != 0 && flags[$0] & FSEventStreamEventFlags(kFSEventStreamEventFlagItemCreated | kFSEventStreamEventFlagItemRenamed) != 0 }.map { paths[$0] })
+            let visible = (0..<count).filter { i in
+                let dir = flags[i] & FSEventStreamEventFlags(kFSEventStreamEventFlagItemIsDir) != 0
+                let structural = flags[i] & FSEventStreamEventFlags(kFSEventStreamEventFlagItemCreated | kFSEventStreamEventFlagItemRemoved | kFSEventStreamEventFlagItemRenamed) != 0
+                return !dir || structural || full
+            }.map { paths[$0] }
+            Task { @MainActor in owner.changed(visible, full: full, recursive: recursive) }
+        }, &context, roots as CFArray, FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 0.1, FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagWatchRoot | kFSEventStreamCreateFlagFileEvents))
         if let stream { FSEventStreamSetDispatchQueue(stream, .main); if !FSEventStreamStart(stream) { issues.append("Change monitoring unavailable. Use Refresh.") } }
     }
-    private func changed(_ paths: [String], full: Bool) {
-        let relevant = paths.filter { path in !PathScope.contains(cache.path, path) && !excluded.contains(where: { PathScope.contains($0, path) }) }
+    private func changed(_ paths: [String], full: Bool, recursive: Set<String>) {
+        let relevant = paths.filter { path in !PathScope.isTrash(path) && !PathScope.contains(cache.path, path) && !excluded.contains(where: { PathScope.contains($0, path) }) }
         guard !relevant.isEmpty else { return }
+        inspectLive(relevant, recursive: recursive)
         if full { queued.formUnion(roots) }
-        else {
-            for path in relevant {
-                if roots.contains(path) { queued.insert(path) }
-                else if roots.contains(where: { PathScope.contains($0, path) }) { queued.insert(path) }
-            }
-        }
         pending?.cancel()
         let item = DispatchWorkItem { [weak self] in Task { @MainActor in if self?.indexing == false && self?.paused == false { self?.launch() } } }
         pending = item; DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: item)

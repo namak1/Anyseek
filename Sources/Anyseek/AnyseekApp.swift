@@ -146,7 +146,7 @@ struct SearchWindow: View {
             Button("Cancel", role: .cancel) { }
         }
         .alert("Anyseek", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
-        .task(id: query + category + String(caseSensitive) + String(matchPath) + String(index.revision) + String(wholeWord) + String(regex) + String(showHidden) + String(hideEmptyResults) + String(sortGeneration)) { await search() }
+        .task(id: query + category + String(caseSensitive) + String(matchPath) + String(index.revision) + String(wholeWord) + String(regex) + String(showHidden) + String(hideEmptyResults) + String(sortGeneration) + String(index.liveRevision)) { await search() }
         .onChange(of: options) { visible in if !visible { history = UserDefaults.standard.stringArray(forKey: "history") ?? [] } }
         .onChange(of: sortOrder) { _ in sortGeneration += 1 }
         .onAppear { query = ""; category = "Everything"; hideEmptyResults = false; searchFocused = true }
@@ -178,12 +178,13 @@ struct SearchWindow: View {
         let column: ResultColumn = comparator?.keyPath == \FileRecord.size ? .size : comparator?.keyPath == \FileRecord.modified ? .modified : comparator?.keyPath == \FileRecord.path ? .path : .name
         let descending = comparator?.order == .reverse
         let revision = index.revision
+        let liveToken = index.liveRevision, removed = index.liveRemoved, updated = Array(index.liveUpdated.values)
         let signature = [text, selectedCategory, String(sensitive), String(path), String(whole), String(regular), String(hidden)].joined(separator: "\0")
         let engine = resultIndex
         searching = true
         let worker = Task.detached(priority: .userInitiated) {
             let extensions: [String: Set<String>] = ["Documents": ["pdf", "doc", "docx", "txt", "rtf", "xlsx", "csv", "pptx", "md"], "Images": ["png", "jpg", "jpeg", "gif", "heic", "webp", "tiff", "svg"], "Audio": ["mp3", "m4a", "flac", "wav", "aac", "aiff", "ogg"], "Video": ["mp4", "mkv", "mov", "avi", "webm", "m4v"], "Archives": ["zip", "rar", "7z", "gz", "tar"]]
-            return try await engine.results(files: files, revision: revision, signature: signature, column: column, descending: descending) { file in
+            return try await engine.results(files: files, revision: revision, signature: signature, column: column, descending: descending, liveToken: liveToken, removed: removed, updated: updated) { file in
                 if !hidden && file.path.split(separator: "/").contains(where: { $0.hasPrefix(".") }) { return false }
                 let categoryMatches = selectedCategory == "Everything" || (selectedCategory == "Folders" ? file.isDirectory : !file.isDirectory && (extensions[selectedCategory]?.contains((file.name as NSString).pathExtension.lowercased()) ?? false))
                 return categoryMatches && (text.isEmpty || parser.matches(file))
@@ -247,11 +248,11 @@ struct SearchWindow: View {
     private func trash() {
         var failures: [String] = []
         for path in PathScope.compact(Array(trashSelection)) {
-            do { try FileManager.default.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: nil) }
+            do { try FileManager.default.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: nil); index.applyLive(removed: [path]); results.removeAll { PathScope.contains(path, $0.path) }; resultGeneration += 1 }
             catch { failures.append("\(path): \(error.localizedDescription)") }
         }
         if !failures.isEmpty { error = failures.joined(separator: "\n") }
-        selection = []; index.rebuild()
+        selection = []
     }
     private func export() {
         let panel = NSSavePanel(); panel.nameFieldStringValue = "Anyseek-results.csv"

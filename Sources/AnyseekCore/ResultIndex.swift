@@ -2,12 +2,13 @@ import Foundation
 
 public enum ResultColumn: String { case name, path, size, modified }
 public actor ResultIndex {
+    private var liveToken = -1
     private var revision = -1
     private var signature = ""
     private var filtered: [FileRecord] = []
     private var sorted: [ResultColumn: [FileRecord]] = [:]
     public init() { }
-    public func results(files: [FileRecord], revision: Int, signature: String, column: ResultColumn, descending: Bool, matches: (FileRecord) -> Bool) throws -> [FileRecord] {
+    public func results(files: [FileRecord], revision: Int, signature: String, column: ResultColumn, descending: Bool, liveToken: Int = 0, removed: Set<String> = [], updated: [FileRecord] = [], matches: (FileRecord) -> Bool) throws -> [FileRecord] {
         try Task.checkCancellation()
         if self.revision != revision || self.signature != signature {
             var next: [FileRecord] = []; next.reserveCapacity(files.count)
@@ -15,7 +16,29 @@ public actor ResultIndex {
                 if i % 1024 == 0 { try Task.checkCancellation() }
                 if matches(file) { next.append(file) }
             }
-            self.revision = revision; self.signature = signature; filtered = next; sorted.removeAll(keepingCapacity: true)
+            self.revision = revision; self.signature = signature; filtered = next; self.liveToken = -1; sorted.removeAll(keepingCapacity: true)
+        }
+        if self.liveToken != liveToken {
+            self.liveToken = liveToken
+            let scopes = PathScope.compact(Array(removed))
+            let changed = Set(updated.map(\.path))
+            func keep(_ file: FileRecord) -> Bool { !changed.contains(file.path) && !scopes.contains(where: { PathScope.contains($0, file.path) }) }
+            let additions = updated.filter(matches)
+            filtered = filtered.filter(keep) + additions
+            for key in Array(sorted.keys) {
+                var values = sorted[key]!.filter(keep)
+                let incoming = order(additions, by: key)
+                if !incoming.isEmpty {
+                    var merged: [FileRecord] = []; merged.reserveCapacity(values.count + incoming.count)
+                    var i = 0, j = 0
+                    while i < values.count && j < incoming.count {
+                        if precedes(values[i], incoming[j], key) { merged.append(values[i]); i += 1 }
+                        else { merged.append(incoming[j]); j += 1 }
+                    }
+                    merged.append(contentsOf: values[i...]); merged.append(contentsOf: incoming[j...]); values = merged
+                }
+                sorted[key] = values
+            }
         }
         if sorted[column] == nil { sorted[column] = order(filtered, by: column) }
         try Task.checkCancellation()
@@ -26,6 +49,14 @@ public actor ResultIndex {
     public func warm() throws {
         for column in [ResultColumn.size, .modified] where sorted[column] == nil {
             try Task.checkCancellation(); sorted[column] = order(filtered, by: column)
+        }
+    }
+    private func precedes(_ a: FileRecord, _ b: FileRecord, _ column: ResultColumn) -> Bool {
+        switch column {
+        case .size: return a.size == b.size ? a.path < b.path : a.size < b.size
+        case .modified: return a.modified == b.modified ? a.path < b.path : a.modified < b.modified
+        case .name: return a.name == b.name ? a.path < b.path : a.name < b.name
+        case .path: return a.path < b.path
         }
     }
     private func order(_ files: [FileRecord], by column: ResultColumn) -> [FileRecord] {

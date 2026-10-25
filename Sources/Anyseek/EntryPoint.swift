@@ -70,12 +70,12 @@ import AnyseekCore
         try await waitFor({ !store.indexing && !store.files.isEmpty }, "Watcher initial scan timed out")
         let watched = root.appendingPathComponent("watch.txt")
         try "watch".write(to: watched, atomically: true, encoding: .utf8)
-        try await waitFor({ store.files.contains { $0.path == watched.path } }, "FSEvents did not index created file")
+        try await waitFor({ store.containsLive(watched.path) }, "FSEvents did not index created file")
         let moved = root.appendingPathComponent("watch-renamed.txt")
         try fm.moveItem(at: watched, to: moved)
-        try await waitFor({ store.files.contains { $0.path == moved.path } && !store.files.contains { $0.path == watched.path } }, "FSEvents rename failed")
+        try await waitFor({ store.containsLive(moved.path) && !store.containsLive(watched.path) }, "FSEvents rename failed")
         try fm.removeItem(at: moved)
-        try await waitFor({ !store.files.contains { $0.path == moved.path } }, "FSEvents deletion failed")
+        try await waitFor({ !store.containsLive(moved.path) }, "FSEvents deletion failed")
         print("PASS: live FSEvents create/rename/delete")
     }
 }
