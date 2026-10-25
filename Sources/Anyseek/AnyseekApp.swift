@@ -34,6 +34,10 @@ struct SearchWindow: View {
     @State private var caseSensitive = false
     @State private var matchPath = false
     @State private var results: [FileRecord] = []
+    @State private var resultIndex = ResultIndex()
+    @State private var resultGeneration = 0
+    @State private var sortGeneration = 0
+    @State private var searching = false
     @State private var selection = Set<String>()
     @State private var sortOrder = [KeyPathComparator(\FileRecord.name)]
     @State private var folders = false
@@ -61,31 +65,17 @@ struct SearchWindow: View {
             }.padding(.horizontal, 3).padding(.vertical, 3)
             if let queryError { Text(queryError).foregroundStyle(.red).font(.caption).padding(6) }
             HSplitView {
-            Table(results, selection: $selection, sortOrder: $sortOrder) {
-                TableColumn("Name", value: \.name) { file in
-                    HStack(spacing: 6) {
-                        Image(nsImage: NSWorkspace.shared.icon(forFile: file.path)).resizable().frame(width: 16, height: 16)
-                        Text(file.name).lineLimit(1).help(file.path).onDrag { NSItemProvider(object: URL(fileURLWithPath: file.path) as NSURL) }
-                    }
-                }.width(min: 180, ideal: 260)
-                TableColumn("Path", value: \.path) { Text(URL(fileURLWithPath: $0.path).deletingLastPathComponent().path).foregroundStyle(.secondary) }.width(min: 180, ideal: 340)
-                TableColumn("Size", value: \.size) { Text($0.isDirectory ? "—" : ByteCountFormatter.string(fromByteCount: $0.size, countStyle: .file)) }.width(85)
-                TableColumn("Date Modified", value: \.modified) { Text($0.modified.formatted(date: .numeric, time: .shortened)) }.width(145)
-            }
-            .font(.system(size: resultFontSize))
-            .background(ClassicTableStyle(alternateRows: alternateRows, fontSize: resultFontSize))
-            .background(ResultKeyHandler(open: { open(selection) }, preview: { if !selection.isEmpty { preview = true } }, copy: { copyFiles(selection) }, trash: { if !selection.isEmpty { trashSelection = selection; confirmTrash = true } }))
-            .contextMenu(forSelectionType: String.self) { ids in
-                Button("Open") { open(ids) }.disabled(ids.isEmpty)
-                Button("Reveal in Finder") { reveal(ids) }.disabled(ids.isEmpty)
-                Button("Copy Paths") { copy(ids) }.disabled(ids.isEmpty)
-                Button("Copy Files") { copyFiles(ids) }.disabled(ids.isEmpty)
-                Button("Quick Look") { selection = ids; preview = true }.disabled(ids.isEmpty)
-                Button("File Details") { selection = ids; diagnostics = true }.disabled(ids.isEmpty)
-                Divider()
-                Button("Rename…") { beginRename(ids) }.disabled(ids.count != 1)
-                Button("Move to Trash…") { trashSelection = ids; confirmTrash = true }.disabled(ids.isEmpty)
-            } primaryAction: { ids in open(ids) }
+            FastResultsTable(files: results, selection: $selection, sortOrder: $sortOrder, generation: resultGeneration, alternate: alternateRows, fontSize: resultFontSize, open: { open($0) }, preview: { selection = $0; preview = true }, copy: { copyFiles($0) }, actions: { ids in
+                let menu = NSMenu(); menu.autoenablesItems = false
+                menu.addItem(MenuCommand("Open", enabled: !ids.isEmpty) { open(ids) })
+                menu.addItem(MenuCommand("Reveal in Finder", enabled: !ids.isEmpty) { reveal(ids) })
+                menu.addItem(MenuCommand("Copy Files", enabled: !ids.isEmpty) { copyFiles(ids) })
+                menu.addItem(MenuCommand("Copy Paths", enabled: !ids.isEmpty) { copy(ids) })
+                menu.addItem(MenuCommand("Quick Look", enabled: !ids.isEmpty) { selection = ids; preview = true })
+                menu.addItem(MenuCommand("Rename…", enabled: ids.count == 1) { beginRename(ids) })
+                menu.addItem(MenuCommand("Move to Trash…", enabled: !ids.isEmpty) { trashSelection = ids; confirmTrash = true })
+                return menu
+            })
             if previewPane {
                 VStack {
                     if let path = selection.sorted().first { FilePreview(path: path) }
@@ -97,6 +87,7 @@ struct SearchWindow: View {
             if showStatusBar { HStack {
                 Text("\(results.count.formatted()) objects")
                 Spacer()
+                if searching { Text("Updating results…") }
                 if index.indexing { ProgressView().controlSize(.small) }
                 Text(index.status)
                 if index.indexing { Button("Pause") { index.cancel() }.buttonStyle(.link) }
@@ -155,9 +146,9 @@ struct SearchWindow: View {
             Button("Cancel", role: .cancel) { }
         }
         .alert("Anyseek", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
-        .task(id: query + category + String(caseSensitive) + String(matchPath) + String(index.revision) + String(wholeWord) + String(regex) + String(showHidden) + String(hideEmptyResults)) { await search() }
+        .task(id: query + category + String(caseSensitive) + String(matchPath) + String(index.revision) + String(wholeWord) + String(regex) + String(showHidden) + String(hideEmptyResults) + String(sortGeneration)) { await search() }
         .onChange(of: options) { visible in if !visible { history = UserDefaults.standard.stringArray(forKey: "history") ?? [] } }
-        .onChange(of: sortOrder) { _ in results.sort(using: sortOrder) }
+        .onChange(of: sortOrder) { _ in sortGeneration += 1 }
         .onAppear { query = ""; category = "Everything"; hideEmptyResults = false; searchFocused = true }
         .onReceive(NotificationCenter.default.publisher(for: .anyseekFocus)) { _ in searchFocused = true }
     }
@@ -183,21 +174,31 @@ struct SearchWindow: View {
         let files = index.files, text = query, selectedCategory = category, sensitive = caseSensitive, path = matchPath, whole = wholeWord, regular = regex, hidden = showHidden
         let parser = SearchQuery(text, caseSensitive: sensitive, matchPath: path, wholeWord: whole, regex: regular)
         queryError = parser.error
+        let comparator = sortOrder.first
+        let column: ResultColumn = comparator?.keyPath == \FileRecord.size ? .size : comparator?.keyPath == \FileRecord.modified ? .modified : comparator?.keyPath == \FileRecord.path ? .path : .name
+        let descending = comparator?.order == .reverse
+        let revision = index.revision
+        let signature = [text, selectedCategory, String(sensitive), String(path), String(whole), String(regular), String(hidden)].joined(separator: "\0")
+        let engine = resultIndex
+        searching = true
         let worker = Task.detached(priority: .userInitiated) {
             let extensions: [String: Set<String>] = ["Documents": ["pdf", "doc", "docx", "txt", "rtf", "xlsx", "csv", "pptx", "md"], "Images": ["png", "jpg", "jpeg", "gif", "heic", "webp", "tiff", "svg"], "Audio": ["mp3", "m4a", "flac", "wav", "aac", "aiff", "ogg"], "Video": ["mp4", "mkv", "mov", "avi", "webm", "m4v"], "Archives": ["zip", "rar", "7z", "gz", "tar"]]
-            var matches: [FileRecord] = []
-            for (offset, file) in files.enumerated() {
-                if offset % 256 == 0 && Task.isCancelled { return matches }
-                if !hidden && file.path.split(separator: "/").contains(where: { $0.hasPrefix(".") }) { continue }
-                let categoryMatches = selectedCategory == "Everything" || (selectedCategory == "Folders" ? file.isDirectory : !file.isDirectory && (extensions[selectedCategory]?.contains(URL(fileURLWithPath: file.path).pathExtension.lowercased()) ?? false))
-                if categoryMatches && parser.matches(file) { matches.append(file) }
+            return try await engine.results(files: files, revision: revision, signature: signature, column: column, descending: descending) { file in
+                if !hidden && file.path.split(separator: "/").contains(where: { $0.hasPrefix(".") }) { return false }
+                let categoryMatches = selectedCategory == "Everything" || (selectedCategory == "Folders" ? file.isDirectory : !file.isDirectory && (extensions[selectedCategory]?.contains((file.name as NSString).pathExtension.lowercased()) ?? false))
+                return categoryMatches && (text.isEmpty || parser.matches(file))
             }
-            return matches
         }
-        let filtered = await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
-        guard !Task.isCancelled else { return }
-        results = hideEmptyResults && text.isEmpty ? [] : filtered.sorted(using: sortOrder)
-        selection.formIntersection(Set(results.map(\.id)))
+        do {
+            let filtered = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
+            guard !Task.isCancelled else { return }
+            results = hideEmptyResults && text.isEmpty ? [] : filtered
+            resultGeneration += 1; searching = false
+            // Selection reconciliation only examines selected rows, not every path.
+            if !selection.isEmpty { selection.formIntersection(Set(results.lazy.filter { selection.contains($0.path) }.map(\.path))) }
+            if !index.indexing { Task.detached(priority: .utility) { try? await engine.warm() } }
+        } catch is CancellationError { }
+        catch { searching = false; self.error = error.localizedDescription }
     }
     private func open(_ ids: Set<String>) { rememberSearch(); for path in ids { if !NSWorkspace.shared.open(URL(fileURLWithPath: path)) { error = "Could not open \(path)" } } }
     private func reveal(_ ids: Set<String>) { NSWorkspace.shared.activateFileViewerSelecting(ids.map { URL(fileURLWithPath: $0) }) }
