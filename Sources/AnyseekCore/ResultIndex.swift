@@ -11,9 +11,10 @@ public struct ResultRows: RandomAccessCollection {
     private let overlay: [FileRecord]
     private let rows: [Int]
     private let descending: Bool
-    public static let empty = ResultRows(base: [], overlay: [], rows: [], descending: false)
-    fileprivate init(base: [FileRecord], overlay: [FileRecord], rows: [Int], descending: Bool) {
-        self.base = base; self.overlay = overlay; self.rows = rows; self.descending = descending
+    private let column: ResultColumn
+    public static let empty = ResultRows(base: [], overlay: [], rows: [], descending: false, column: .name)
+    fileprivate init(base: [FileRecord], overlay: [FileRecord], rows: [Int], descending: Bool, column: ResultColumn) {
+        self.base = base; self.overlay = overlay; self.rows = rows; self.descending = descending; self.column = column
     }
     public var startIndex: Int { 0 }
     public var endIndex: Int { rows.count }
@@ -21,9 +22,28 @@ public struct ResultRows: RandomAccessCollection {
         let id = rows[descending ? rows.count - 1 - position : position]
         return id < base.count ? base[id] : overlay[id - base.count]
     }
+    /// Locate an unchanged selected record in O(log n), in either direction.
+    /// Callers may fall back to a path scan if live metadata has changed.
+    public func position(of record: FileRecord) -> Int? {
+        func precedes(_ a: FileRecord, _ b: FileRecord) -> Bool {
+            switch column {
+            case .size: return a.size == b.size ? a.path < b.path : a.size < b.size
+            case .modified: return a.modified == b.modified ? a.path < b.path : a.modified < b.modified
+            case .name: return a.name == b.name ? a.path < b.path : a.name < b.name
+            case .path: return a.path < b.path
+            }
+        }
+        var low = startIndex, high = endIndex
+        while low < high {
+            let middle = low + (high - low) / 2
+            if descending ? precedes(record, self[middle]) : precedes(self[middle], record) { low = middle + 1 }
+            else { high = middle }
+        }
+        return low < endIndex && self[low].path == record.path ? low : nil
+    }
     public func removing(where predicate: (FileRecord) -> Bool) -> ResultRows {
         let kept = rows.filter { id in !predicate(id < base.count ? base[id] : overlay[id - base.count]) }
-        return ResultRows(base: base, overlay: overlay, rows: kept, descending: descending)
+        return ResultRows(base: base, overlay: overlay, rows: kept, descending: descending, column: column)
     }
 }
 
@@ -108,7 +128,7 @@ public actor ResultIndex {
             try Task.checkCancellation()
             queryOrders[column] = selected
         }
-        return ResultRows(base: base, overlay: overlay, rows: queryOrders[column]!, descending: descending)
+        return ResultRows(base: base, overlay: overlay, rows: queryOrders[column]!, descending: descending, column: column)
     }
 
     /// Explicit preparation for benchmarks; the UI does not enqueue speculative

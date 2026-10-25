@@ -180,24 +180,20 @@ struct SearchWindow: View {
         let liveToken = index.liveRevision, removed = index.liveRemoved, updated = Array(index.liveUpdated.values)
         let signature = [text, selectedCategory, String(sensitive), String(path), String(whole), String(regular), String(hidden)].joined(separator: "\0")
         let engine = resultIndex
-        let wantedSelection = selection
         searching = true
         let worker = Task.detached(priority: .userInitiated) {
             let extensions: [String: Set<String>] = ["Documents": ["pdf", "doc", "docx", "txt", "rtf", "xlsx", "csv", "pptx", "md"], "Images": ["png", "jpg", "jpeg", "gif", "heic", "webp", "tiff", "svg"], "Audio": ["mp3", "m4a", "flac", "wav", "aac", "aiff", "ogg"], "Video": ["mp4", "mkv", "mov", "avi", "webm", "m4v"], "Archives": ["zip", "rar", "7z", "gz", "tar"]]
-            let rows = try await engine.results(files: files, revision: revision, signature: signature, column: column, descending: descending, liveToken: liveToken, removed: removed, updated: updated) { file in
-                if !hidden && file.path.split(separator: "/").contains(where: { $0.hasPrefix(".") }) { return false }
+            return try await engine.results(files: files, revision: revision, signature: signature, column: column, descending: descending, liveToken: liveToken, removed: removed, updated: updated) { file in
+                if !hidden && file.path.contains("/.") { return false }
                 let categoryMatches = selectedCategory == "Everything" || (selectedCategory == "Folders" ? file.isDirectory : !file.isDirectory && (extensions[selectedCategory]?.contains((file.name as NSString).pathExtension.lowercased()) ?? false))
                 return categoryMatches && (text.isEmpty || parser.matches(file))
             }
-            let retained = wantedSelection.isEmpty ? Set<String>() : Set(rows.lazy.filter { wantedSelection.contains($0.path) }.map(\.path))
-            return (rows, retained)
         }
         do {
-            let (filtered, retainedSelection) = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
+            let filtered = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
             guard !Task.isCancelled else { return }
             results = hideEmptyResults && text.isEmpty ? .empty : filtered
             resultGeneration += 1; searching = false
-            if selection == wantedSelection { selection = retainedSelection }
         } catch is CancellationError { }
         catch { searching = false; self.error = error.localizedDescription }
     }

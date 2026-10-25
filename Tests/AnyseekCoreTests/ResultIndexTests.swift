@@ -68,8 +68,10 @@ extension ResultIndexTests {
             }
             let all = try await engine.results(files: files, revision: 1, signature: "all", column: column, descending: false) { _ in true }
             XCTAssertEqual(Array(all), expected)
+            for i in stride(from: 0, to: all.count, by: 37) { XCTAssertEqual(all.position(of: all[i]), i) }
             let subset = try await engine.results(files: files, revision: 1, signature: "folders", column: column, descending: true) { $0.isDirectory }
             XCTAssertEqual(Array(subset), Array(expected.filter(\.isDirectory).reversed()))
+            for i in stride(from: 0, to: subset.count, by: 37) { XCTAssertEqual(subset.position(of: subset[i]), i) }
             // Old snapshots must remain valid after query and overlay changes.
             XCTAssertEqual(Array(all), expected)
         }

@@ -9,7 +9,7 @@ Anyseek keeps one immutable metadata snapshot and represents results with intege
 - Live filesystem changes mask stale base entries and merge replacement/additional records into the ordered results. Base sort orders remain reusable.
 - Sort and filter loops check cancellation. The UI does not queue speculative sorting ahead of interactive work.
 - Filename matching uses an allocation-free ASCII path where possible, with Foundation matching for Unicode names and queries.
-- Selection restoration runs off the AppKit thread. File-type icons are cached, avoiding filesystem icon lookups during scrolling.
+- Selection restoration uses binary lookup for unchanged records and falls back to a background path scan after metadata changes. File-type icons are cached, avoiding filesystem icon lookups during scrolling.
 
 ## Reproducible checks
 

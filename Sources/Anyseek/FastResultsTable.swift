@@ -33,7 +33,7 @@ struct FastResultsTable: NSViewRepresentable {
         return scroll
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
-        let c = context.coordinator; c.parent = self
+        let c = context.coordinator; let previous = c.parent.files; c.parent = self
         guard let table = c.table else { return }
         table.usesAlternatingRowBackgroundColors = alternate; table.rowHeight = fontSize + 6
         table.intercellSpacing = NSSize(width: 3, height: 0); table.backgroundColor = .white
@@ -48,17 +48,28 @@ struct FastResultsTable: NSViewRepresentable {
                 // on the AppKit thread. Ignore obsolete restoration tasks.
                 c.restore?.cancel()
                 let wanted = selection, rows = files, token = generation
+                let oldRecords = table.selectedRowIndexes.compactMap { previous.indices.contains($0) ? previous[$0] : nil }
                 c.restore = Task.detached(priority: .userInitiated) { [c] in
                     var positions = IndexSet()
-                    for row in rows.indices {
-                        if row & 4095 == 0 && Task.isCancelled { return }
-                        if wanted.contains(rows[row].path) { positions.insert(row) }
+                    var missing = wanted
+                    for record in oldRecords where missing.contains(record.path) {
+                        if let row = rows.position(of: record) { positions.insert(row); missing.remove(record.path) }
+                    }
+                    // Only changed metadata or newly selected paths require a scan.
+                    if !missing.isEmpty {
+                        for row in rows.indices {
+                            if row & 4095 == 0 && Task.isCancelled { return }
+                            if missing.remove(rows[row].path) != nil { positions.insert(row) }
+                            if missing.isEmpty { break }
+                        }
                     }
                     let selectedPositions = positions
+                    let surviving = wanted.subtracting(missing)
                     await MainActor.run {
                         guard c.generation == token, c.parent.selection == wanted, let table = c.table else { return }
                         c.updating = true
                         table.selectRowIndexes(selectedPositions, byExtendingSelection: false)
+                        c.parent.selection = surviving
                         c.updating = false
                     }
                 }
