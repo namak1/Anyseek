@@ -22,6 +22,7 @@ struct SearchWindow: View {
     @State private var queryError: String?
     @State private var history = UserDefaults.standard.stringArray(forKey: "history") ?? []
     @State private var preview = false
+    @AppStorage("previewPane") private var previewPane = false
     @State private var diagnostics = false
     @State private var help = false
     @State private var renamePath: String?
@@ -59,6 +60,7 @@ struct SearchWindow: View {
                 if showFilterBar { Picker("Filter", selection: $category) { ForEach(categories, id: \.self) { Text($0) } }.labelsHidden().frame(width: 115) }
             }.padding(.horizontal, 3).padding(.vertical, 3)
             if let queryError { Text(queryError).foregroundStyle(.red).font(.caption).padding(6) }
+            HSplitView {
             Table(results, selection: $selection, sortOrder: $sortOrder) {
                 TableColumn("Name", value: \.name) { file in
                     HStack(spacing: 6) {
@@ -84,6 +86,13 @@ struct SearchWindow: View {
                 Button("Rename…") { beginRename(ids) }.disabled(ids.count != 1)
                 Button("Move to Trash…") { trashSelection = ids; confirmTrash = true }.disabled(ids.isEmpty)
             } primaryAction: { ids in open(ids) }
+            if previewPane {
+                VStack {
+                    if let path = selection.sorted().first { FilePreview(path: path) }
+                    else { Text("Select a file to preview").foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity) }
+                }.frame(minWidth: 180, idealWidth: 260)
+            }
+            }
             Divider()
             if showStatusBar { HStack {
                 Text("\(results.count.formatted()) objects")
@@ -147,6 +156,7 @@ struct SearchWindow: View {
         }
         .alert("Anyseek", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
         .task(id: query + category + String(caseSensitive) + String(matchPath) + String(index.revision) + String(wholeWord) + String(regex) + String(showHidden) + String(hideEmptyResults)) { await search() }
+        .onChange(of: options) { visible in if !visible { history = UserDefaults.standard.stringArray(forKey: "history") ?? [] } }
         .onChange(of: sortOrder) { _ in results.sort(using: sortOrder) }
         .onAppear { searchFocused = true }
         .onReceive(NotificationCenter.default.publisher(for: .anyseekFocus)) { _ in searchFocused = true }
@@ -174,7 +184,7 @@ struct SearchWindow: View {
                 Toggle("Status Bar", isOn: $showStatusBar)
                 Toggle("Show Hidden Files", isOn: $showHidden)
                 Divider()
-                Button("Preview") { preview = true }.disabled(selection.isEmpty)
+                Toggle("Preview", isOn: $previewPane)
                 Button("Refresh") { index.rebuild() }.keyboardShortcut("r")
                 Button("Zoom In") { resultFontSize = min(22, resultFontSize + 1) }
                 Button("Zoom Out") { resultFontSize = max(9, resultFontSize - 1) }

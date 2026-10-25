@@ -5,7 +5,7 @@ import ServiceManagement
 struct ClassicOptions: View {
     @ObservedObject var index: IndexStore
     @Environment(\.dismiss) private var dismiss
-    @State private var page = "General"
+    @State private var page: String? = "General"
     @AppStorage("hideEmptyResults") private var hideEmpty = false
     @AppStorage("alternateRows") private var alternateRows = false
     @AppStorage("resultFontSize") private var fontSize = 12.0
@@ -20,7 +20,7 @@ struct ClassicOptions: View {
             HStack(alignment: .top, spacing: 12) {
                 List(pages, id: \.self, selection: $page) { Text($0).font(.system(size: 12)) }.frame(width: 150)
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(page).font(.system(size: 13, weight: .semibold))
+                    Text(page ?? "General").font(.system(size: 13, weight: .semibold))
                     Divider()
                     content
                     Spacer()
@@ -30,7 +30,7 @@ struct ClassicOptions: View {
         }.padding(12).frame(width: 650, height: 470).background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(.light)
     }
     @ViewBuilder private var content: some View {
-        switch page {
+        switch page ?? "General" {
         case "General":
             Toggle("Start Anyseek on system startup", isOn: $login).onChange(of: login) { enabled in
                 do { if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() } }

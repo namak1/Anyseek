@@ -1,3 +1,5 @@
+Classic interface update: in-window menus, compact search/results layout, optional preview pane, sidebar Options, and Advanced Search. This is not yet complete Everything parity; see docs/PARITY.md.
+
 A working native macOS file-search app with SQLite persistence, filesystem change tracking, offline catalogues, grouped search expressions, previews, Finder actions, bookmarks, and global shortcut.
 
 Download **Anyseek.dmg**, double-click it, and drag **Anyseek.app** onto the **Applications** folder. Eject the disk image, then open Anyseek from Applications. No Terminal or build tools are needed. The ZIP is an alternative containing the same ready-to-run app. Requires macOS 13+. Universal binary for Apple Silicon and Intel.

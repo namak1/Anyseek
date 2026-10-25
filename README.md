@@ -15,7 +15,11 @@ A ZIP containing the same ready-to-run `.app` is also available under the releas
 
 The app is ad-hoc signed, not Apple-notarized. If macOS blocks it, use **System Settings → Privacy & Security → Open Anyway** after reviewing the download source. Some protected folders require permission in Privacy & Security; the app reports inaccessible locations rather than bypassing restrictions.
 
-## Working features in 0.2.0
+## Classic interface update in 0.3.0
+
+The main window now uses a compact menu strip, full-width search field, white results table, status flags and an optional split preview pane. Options use a sidebar dialog; Advanced Search builds queries through form fields. See [the explicit parity checklist](docs/PARITY.md) for remaining differences. This is not yet an exact Everything recreation.
+
+## Working features
 
 - Search as you type with Name, Path, Size, Date Modified columns and reversible column sorting.
 - Case, whole-word, full-path and regular-expression modes; file-type and hidden-file filters.
