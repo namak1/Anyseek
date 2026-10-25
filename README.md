@@ -8,8 +8,8 @@ Requires **macOS 13 or later**. The ZIP contains a **universal application for A
 
 1. Open [Downloads](https://github.com/namak1/Anyseek/releases) and download **Anyseek.dmg** from the newest release.
 2. Double-click the DMG, then drag **Anyseek.app** onto the **Applications** folder beside it.
-3. Eject the disk image. Open **Applications → Anyseek** and choose **Add Folders**.
-4. Select your home folder or drives, then start searching. No coding tools or Terminal commands are needed.
+3. Eject the disk image. Open **Applications → Anyseek**.
+4. The main drive and connected removable drives are indexed automatically. Results appear as the first scan progresses; subsequent launches show cached results immediately. No coding tools or Terminal commands are needed.
 
 A ZIP containing the same ready-to-run `.app` is also available under the release assets.
 
@@ -82,3 +82,5 @@ The index is stored at `~/Library/Application Support/Anyseek/index.sqlite`; fol
 This is a working file-search application, **not a claim of complete or indistinguishable Everything parity**. Windows-specific features and undocumented query functions are not implemented. PDF/Word content extraction, duplicate detection, batch rename, a CLI, and network search servers are not included. Text content search is limited to UTF-8 files up to 16 MB. Symlink directories are not traversed. Disconnected entries remain searchable but cannot be opened until their volume returns. File operations use filesystem permissions and do not override them.
 
 Million-file latency and memory usage have not been benchmarked. Search scans an in-memory snapshot; SQLite provides durable storage. The native UI, global shortcut, and login integration should also be checked on the target Mac. No affiliation with voidtools is implied.
+
+Opening one top-level menu enables hover switching across the other menu titles, using native menu tracking. Protected locations remain subject to macOS access permissions.

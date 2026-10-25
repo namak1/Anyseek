@@ -4,6 +4,11 @@ import AnyseekCore
 
 @main enum EntryPoint {
     @MainActor static func main() async {
+        if CommandLine.arguments.contains("--list-auto-roots") {
+            let store = IndexStore()
+            print(String(data: try! JSONEncoder().encode(store.roots), encoding: .utf8)!)
+            store.shutdown(); exit(0)
+        }
         if CommandLine.arguments.contains("--self-test") {
             do { try await integrationTest(); print("PASS: indexing, changes, rename, delete, exclusions, offline catalogue, persistence, cancellation"); exit(0) }
             catch { fputs("FAIL: \(error)\n", stderr); exit(1) }
