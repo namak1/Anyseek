@@ -209,7 +209,7 @@ actor IndexEngine {
         let scopes = Array(queued); queued.removeAll()
         let selectedRoots = roots, exclusions = excluded
         indexing = true; status = "Indexing…"
-        job = Task {
+        job = Task(priority: .background) {
             do {
                 let initiallyEmpty = files.isEmpty
                 let result = try await engine.scan(scopes: selectedRoots.isEmpty ? [] : scopes, roots: selectedRoots, excluded: exclusions, progress: { [weak self] count in

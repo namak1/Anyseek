@@ -48,6 +48,7 @@ public struct ResultRows: RandomAccessCollection {
 }
 
 public actor ResultIndex {
+    private var basePathOrdered = false
     private var revision = -1
     private var liveToken = -1
     private var signature: String?
@@ -64,6 +65,11 @@ public actor ResultIndex {
         try Task.checkCancellation()
         if self.revision != revision {
             base = files; orders.removeAll(); queryOrders.removeAll()
+            basePathOrdered = true
+            for i in base.indices.dropFirst() {
+                if i & 4095 == 0 { try Task.checkCancellation() }
+                if base[i].path < base[i - 1].path { basePathOrdered = false; break }
+            }
             self.revision = revision; self.signature = nil; self.liveToken = -1
         }
         let queryChanged = self.signature != signature
@@ -166,7 +172,10 @@ public actor ResultIndex {
                 for id in ids { let bucket = Int((keys[id] >> shift) & 255); scratch[counts[bucket]] = id; counts[bucket] += 1 }
                 swap(&ids, &scratch)
             }
-            // Stable deterministic path ordering for equal keys (including folders).
+            // SQLite snapshots already arrive in path order. Stable radix passes
+            // preserve that tie order, including millions of zero-size folders.
+            if basePathOrdered { return ids }
+            // Stable deterministic path ordering for unordered partial snapshots.
             var start = 0
             while start < ids.count {
                 try Task.checkCancellation()

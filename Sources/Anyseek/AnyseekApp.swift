@@ -146,7 +146,7 @@ struct SearchWindow: View {
             Button("Cancel", role: .cancel) { }
         }
         .alert("Anyseek", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
-        .task(id: query + category + String(caseSensitive) + String(matchPath) + String(index.revision) + String(wholeWord) + String(regex) + String(showHidden) + String(hideEmptyResults) + sortColumn.rawValue + String(sortDescending) + String(index.liveRevision)) { await search() }
+        .task(id: searchIdentity) { await search() }
         .onChange(of: options) { visible in if !visible { history = UserDefaults.standard.stringArray(forKey: "history") ?? [] } }
         .onAppear { query = ""; category = "Everything"; hideEmptyResults = false; searchFocused = true }
         .onReceive(NotificationCenter.default.publisher(for: .anyseekFocus)) { _ in searchFocused = true }
@@ -167,6 +167,9 @@ struct SearchWindow: View {
             menu("Tools", [command("Options…") { options = true }, command("Indexing Details…") { diagnostics = true }]),
             menu("Help", [command("Search Syntax") { help = true }, command("About Anyseek") { error = "Anyseek 0.4.0\nIndependent macOS file search." }])
         ]
+    }
+    private var searchIdentity: String {
+        [query, category, String(caseSensitive), String(matchPath), String(index.revision), String(wholeWord), String(regex), String(showHidden), String(hideEmptyResults), sortColumn.rawValue, String(sortDescending), String(index.liveRevision)].joined(separator: "\0")
     }
     private func search() async {
         let files = index.files, text = query, selectedCategory = category, sensitive = caseSensitive, path = matchPath, whole = wholeWord, regular = regex, hidden = showHidden

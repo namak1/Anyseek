@@ -122,3 +122,12 @@ extension ResultIndexTests {
         print("INTERACTIVE BENCHMARK 1000000: first-size=\(first)s 100-direction-toggles=\(toggles)s filename-query=\(search)s query+live-patch=\(seconds(start))s")
     }
 }
+
+extension ResultIndexTests {
+    func testDenseEqualSizesFromPersistedPathOrder() async throws {
+        let files = (0..<200000).map { FileRecord(path: "/Users/test/Library/Deep/" + String(format: "%08d", $0), isDirectory: true, size: 0, modified: .distantPast) }
+        let engine = ResultIndex()
+        let rows = try await engine.results(files: files, revision: 1, signature: "all", column: .size, descending: false) { _ in true }
+        XCTAssertEqual(Array(rows), files)
+    }
+}
