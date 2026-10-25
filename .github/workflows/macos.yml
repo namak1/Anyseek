@@ -9,9 +9,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test search engine
         run: swift test
+      - name: Exercise filesystem lifecycle
+        run: swift run Anyseek --self-test
       - name: Build application
         run: bash scripts/build-app.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: Anyseek-macos-apple-silicon
-          path: dist/Anyseek-macos.zip
+          name: Anyseek-macos-universal
+          path: |
+            dist/Anyseek-macos.zip
+            dist/SHA256SUMS.txt
