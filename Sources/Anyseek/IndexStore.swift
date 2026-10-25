@@ -78,6 +78,7 @@ actor IndexEngine {
     private var pending: DispatchWorkItem?
     private var queued = Set<String>()
     private var job: Task<Void, Never>?
+    private var paused = false
     private var cache: URL
     private let engine: IndexEngine
     private var volumeObservers: [NSObjectProtocol] = []
@@ -86,7 +87,7 @@ actor IndexEngine {
         engine = IndexEngine(cache: cache)
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification, NSWorkspace.didWakeNotification] {
-            volumeObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.watch(); self?.rebuild() } })
+            volumeObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in Task { @MainActor [weak self] in self?.watch(); self?.rebuild() } })
         }
         Task {
             do { files = try await engine.load(); revision += 1 } catch { issues = [error.localizedDescription] }
@@ -104,9 +105,9 @@ actor IndexEngine {
     }
     func removeRoot(_ root: String) { roots.removeAll { $0 == root }; UserDefaults.standard.set(roots, forKey: "roots"); watch(); restart() }
     func removeExclusion(_ path: String) { excluded.removeAll { $0 == path }; UserDefaults.standard.set(excluded, forKey: "excluded"); restart() }
-    private func restart() { job?.cancel(); queued.formUnion(roots); if roots.isEmpty { queued.insert("/") }; if !indexing { launch() } }
-    func cancel() { queued.removeAll(); job?.cancel() }
-    func rebuild() { queued.formUnion(roots); if roots.isEmpty { queued.insert("/") }; if !indexing { launch() } }
+    private func restart() { paused = false; job?.cancel(); queued.formUnion(roots); if roots.isEmpty { queued.insert("/") }; if !indexing { launch() } }
+    func cancel() { paused = true; queued.removeAll(); pending?.cancel(); job?.cancel() }
+    func rebuild() { paused = false; queued.formUnion(roots); if roots.isEmpty { queued.insert("/") }; if !indexing { launch() } }
     private func launch() {
         guard !queued.isEmpty else { return }
         let scopes = Array(queued); queued.removeAll()
@@ -115,14 +116,14 @@ actor IndexEngine {
         job = Task {
             do {
                 let result = try await engine.scan(scopes: selectedRoots.isEmpty ? [] : scopes, roots: selectedRoots, excluded: exclusions) { [weak self] count in
-                    Task { @MainActor in if self?.indexing == true { self?.status = "Indexing… \(count.formatted()) objects" } }
+                    Task { @MainActor [weak self] in if self?.indexing == true { self?.status = "Indexing… \(count.formatted()) objects" } }
                 }
                 files = result.files; issues = result.issues; revision += 1
                 status = "\(files.count.formatted()) indexed" + (issues.isEmpty ? "" : " · \(issues.count) issues")
             } catch is CancellationError { status = "Indexing paused · cached results available" }
             catch { status = "Index failed"; issues = [error.localizedDescription] }
             indexing = false; job = nil
-            if !queued.isEmpty { launch() }
+            if !paused && !queued.isEmpty { launch() }
         }
     }
     private func watch() {
@@ -150,7 +151,7 @@ actor IndexEngine {
             }
         }
         pending?.cancel()
-        let item = DispatchWorkItem { [weak self] in Task { @MainActor in if self?.indexing == false { self?.launch() } } }
+        let item = DispatchWorkItem { [weak self] in Task { @MainActor in if self?.indexing == false && self?.paused == false { self?.launch() } } }
         pending = item; DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: item)
     }
 }
