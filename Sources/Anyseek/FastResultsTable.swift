@@ -12,6 +12,7 @@ struct FastResultsTable: NSViewRepresentable {
     var open: (Set<String>) -> Void
     var preview: (Set<String>) -> Void
     var copy: (Set<String>) -> Void
+    var trash: (Set<String>) -> Void
     var actions: (Set<String>) -> NSMenu
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSScrollView {
@@ -35,7 +36,9 @@ struct FastResultsTable: NSViewRepresentable {
         guard let table = c.table else { return }
         table.usesAlternatingRowBackgroundColors = alternate; table.rowHeight = fontSize + 6
         table.intercellSpacing = NSSize(width: 3, height: 0); table.backgroundColor = .white
-        if c.generation != generation {
+        let currentSelection = Set(table.selectedRowIndexes.filter { files.indices.contains($0) }.map { files[$0].path })
+        if c.generation != generation || c.fontSize != fontSize || currentSelection != selection {
+            c.fontSize = fontSize
             c.generation = generation; c.updating = true
             table.reloadData()
             if selection.isEmpty { table.deselectAll(nil) }
@@ -48,6 +51,7 @@ struct FastResultsTable: NSViewRepresentable {
         var parent: FastResultsTable
         weak var table: NSTableView?
         var generation = -1
+        var fontSize = 0.0
         var updating = false
         let date = DateFormatter()
         init(_ parent: FastResultsTable) { self.parent = parent; date.dateStyle = .short; date.timeStyle = .short }
@@ -94,6 +98,7 @@ struct FastResultsTable: NSViewRepresentable {
         func key(_ event: NSEvent) -> Bool {
             if event.keyCode == 36 { parent.open(parent.selection); return true }
             if event.keyCode == 49 { parent.preview(parent.selection); return true }
+            if event.keyCode == 51 && event.modifierFlags.contains(.command) { parent.trash(parent.selection); return true }
             if event.keyCode == 8 && event.modifierFlags.contains(.command) { parent.copy(parent.selection); return true }
             return false
         }

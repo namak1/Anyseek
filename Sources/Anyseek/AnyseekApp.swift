@@ -65,7 +65,7 @@ struct SearchWindow: View {
             }.padding(.horizontal, 3).padding(.vertical, 3)
             if let queryError { Text(queryError).foregroundStyle(.red).font(.caption).padding(6) }
             HSplitView {
-            FastResultsTable(files: results, selection: $selection, sortOrder: $sortOrder, generation: resultGeneration, alternate: alternateRows, fontSize: resultFontSize, open: { open($0) }, preview: { selection = $0; preview = true }, copy: { copyFiles($0) }, actions: { ids in
+            FastResultsTable(files: results, selection: $selection, sortOrder: $sortOrder, generation: resultGeneration, alternate: alternateRows, fontSize: resultFontSize, open: { open($0) }, preview: { selection = $0; preview = true }, copy: { copyFiles($0) }, trash: { trashSelection = $0; confirmTrash = !$0.isEmpty }, actions: { ids in
                 let menu = NSMenu(); menu.autoenablesItems = false
                 menu.addItem(MenuCommand("Open", enabled: !ids.isEmpty) { open(ids) })
                 menu.addItem(MenuCommand("Reveal in Finder", enabled: !ids.isEmpty) { reveal(ids) })
