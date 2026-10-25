@@ -21,7 +21,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 plutil -lint "$APP/Contents/Info.plist"
-lipo -verify_arch arm64 x86_64 "$APP/Contents/MacOS/Anyseek"
+lipo "$APP/Contents/MacOS/Anyseek" -verify_arch arm64 x86_64
 codesign --force --deep --sign - "$APP"
 ditto -c -k --sequesterRsrc --keepParent "$APP" dist/Anyseek-macos.zip
 
