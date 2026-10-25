@@ -5,7 +5,7 @@ import ServiceManagement
 
 struct AnyseekApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @StateObject private var index = IndexStore()
+    @StateObject private var index = makeIndexStore()
     var body: some Scene {
         WindowGroup("Anyseek") { SearchWindow().environmentObject(index).frame(minWidth: 780, minHeight: 460) }
         .commands {
@@ -110,6 +110,7 @@ struct SearchWindow: View {
                 if !index.issues.isEmpty { Button("Details") { diagnostics = true }.buttonStyle(.link) }
             }.font(.system(size: 11)).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.vertical, 7)
         }
+        .background(Color(nsColor: .windowBackgroundColor))
         .toolbar {
             Button { preview.toggle() } label: { Label("Quick Look", systemImage: "eye") }.disabled(selection.isEmpty)
             Menu {
@@ -260,4 +261,17 @@ struct SearchWindow: View {
         let text = "Name,Path,Size,Modified\n" + results.map { [csv($0.name), csv($0.path), String($0.size), csv(ISO8601DateFormatter().string(from: $0.modified))].joined(separator: ",") }.joined(separator: "\n")
         do { try text.write(to: url, atomically: true, encoding: .utf8) } catch { self.error = error.localizedDescription }
     }
+}
+
+@MainActor private func makeIndexStore() -> IndexStore {
+    guard CommandLine.arguments.contains("--ui-smoke-test") else { return IndexStore() }
+    let fm = FileManager.default
+    let base = URL(fileURLWithPath: PathScope.canonical(fm.temporaryDirectory.path)).appendingPathComponent("Anyseek-UI-" + UUID().uuidString)
+    let root = base.appendingPathComponent("Documents")
+    do {
+        try fm.createDirectory(at: root.appendingPathComponent("Voyages"), withIntermediateDirectories: true)
+        try "Sample invoice".write(to: root.appendingPathComponent("Flora invoice.txt"), atomically: true, encoding: .utf8)
+        try "Vessel,Port\nFlora,Jebel Ali".write(to: root.appendingPathComponent("Schedule.csv"), atomically: true, encoding: .utf8)
+    } catch { fputs("UI fixture failed: \(error)\n", stderr); exit(1) }
+    return IndexStore(cacheURL: base.appendingPathComponent("cache"), selectedRoots: [root.path])
 }
