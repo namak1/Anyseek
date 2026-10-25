@@ -44,4 +44,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v0.3.0-build.${GITHUB_RUN_NUMBER}" dist/Anyseek.dmg dist/Anyseek-macos.zip dist/SHA256SUMS.txt dist/Anyseek-window.png --target "$GITHUB_SHA" --prerelease --title "Anyseek 0.3.0 · build ${GITHUB_RUN_NUMBER}" --notes-file scripts/release-notes.md
+          gh release create "v0.4.0-build.${GITHUB_RUN_NUMBER}" dist/Anyseek.dmg dist/Anyseek-macos.zip dist/SHA256SUMS.txt dist/Anyseek-window.png --target "$GITHUB_SHA" --prerelease --title "Anyseek 0.4.0 · build ${GITHUB_RUN_NUMBER}" --notes-file scripts/release-notes.md

@@ -1,7 +1,7 @@
-Classic interface update: in-window menus, compact search/results layout, optional preview pane, sidebar Options, and Advanced Search. This is not yet complete Everything parity; see docs/PARITY.md.
+Performance engine update: shared metadata and lightweight row indexes, reusable sort orders across queries, radix sorting for size/date, constant-time reversal, faster ASCII filename matching with Unicode fallback, and background selection restoration. Live changes preserve base sort orders.
 
-A working native macOS file-search app with SQLite persistence, filesystem change tracking, offline catalogues, grouped search expressions, previews, Finder actions, bookmarks, and global shortcut.
+The release pipeline checks a million synthetic records in optimized engine tests and the real native table, alongside filesystem create/rename/delete, native rendering and installer checks. See docs/PERFORMANCE.md for methodology and limitations. Speed parity with Windows Everything has not been established.
 
-Download **Anyseek.dmg**, double-click it, and drag **Anyseek.app** onto the **Applications** folder. Eject the disk image, then open Anyseek from Applications. No Terminal or build tools are needed. The ZIP is an alternative containing the same ready-to-run app. Requires macOS 13+. Universal binary for Apple Silicon and Intel.
+Download **Anyseek.dmg**, double-click it, and drag **Anyseek.app** onto **Applications**. Eject the disk image and open Anyseek. No Terminal or build tools are needed. Requires macOS 13+, Apple Silicon or Intel.
 
-This build passed search/database unit tests, filesystem lifecycle integration checks, native window rendering, universal-architecture and mounted-installer checks, and ad-hoc signature verification. It is not Apple-notarized; macOS may require Privacy & Security → Open Anyway. Everything feature parity and million-file performance are not claimed. See README for current limits.
+The application is ad-hoc signed, not Apple-notarized; macOS may require Privacy & Security → Open Anyway. This remains an independent implementation with incomplete Everything feature parity.

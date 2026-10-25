@@ -69,10 +69,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard ready, let table, let coordinator = table.dataSource as? FastResultsTable.Coordinator else {
             fputs("UI performance: million-row table did not become ready\n", stderr); exit(1)
         }
+        table.selectRowIndexes(IndexSet(integer: 500000), byExtendingSelection: false)
+        let selectedPath = coordinator.parent.files[500000].path
         for (key, ascending) in [("size", true), ("size", false), ("modified", true), ("modified", false), ("name", true)] {
             let generation = coordinator.generation, start = Date()
             table.sortDescriptors = [NSSortDescriptor(key: key, ascending: ascending)]
             guard await wait({ coordinator.generation > generation }) else { fputs("UI sort timed out\n", stderr); exit(1) }
+            guard await wait({
+                table.selectedRowIndexes.count == 1 && table.selectedRow >= 0 && coordinator.parent.files[table.selectedRow].path == selectedPath
+            }) else { fputs("UI selection restoration failed\n", stderr); exit(1) }
             table.layoutSubtreeIfNeeded(); table.displayIfNeeded()
             let rows = coordinator.parent.files
             guard rows.count == 1_000_000 else { exit(1) }

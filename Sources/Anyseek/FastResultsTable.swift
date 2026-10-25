@@ -48,7 +48,7 @@ struct FastResultsTable: NSViewRepresentable {
                 // on the AppKit thread. Ignore obsolete restoration tasks.
                 c.restore?.cancel()
                 let wanted = selection, rows = files, token = generation
-                c.restore = Task.detached(priority: .userInitiated) { [weak c] in
+                c.restore = Task.detached(priority: .userInitiated) { [c] in
                     var positions = IndexSet()
                     for row in rows.indices {
                         if row & 4095 == 0 && Task.isCancelled { return }
@@ -56,7 +56,7 @@ struct FastResultsTable: NSViewRepresentable {
                     }
                     let selectedPositions = positions
                     await MainActor.run {
-                        guard let c, c.generation == token, c.parent.selection == wanted, let table = c.table else { return }
+                        guard c.generation == token, c.parent.selection == wanted, let table = c.table else { return }
                         c.updating = true
                         table.selectRowIndexes(selectedPositions, byExtendingSelection: false)
                         c.updating = false

@@ -166,7 +166,7 @@ struct SearchWindow: View {
             menu("Search", [command("Match Case", checked: caseSensitive) { caseSensitive.toggle() }, command("Match Whole Word", checked: wholeWord) { wholeWord.toggle() }, command("Match Path", checked: matchPath) { matchPath.toggle() }, command("Enable Regex", checked: regex) { regex.toggle() }, .separator()] + categories.map { item in command(item, checked: category == item) { category = item } } + [.separator(), command("Advanced Search…") { advanced = true }]),
             menu("Bookmarks", [command("Add to Bookmarks…") { saveBookmark() }] + bookmarks.map { saved in command(saved) { restoreBookmark(saved) } } + [.separator(), command("Clear Bookmarks") { bookmarks = []; UserDefaults.standard.removeObject(forKey: "bookmarks"); UserDefaults.standard.removeObject(forKey: "bookmarkPresets") }]),
             menu("Tools", [command("Options…") { options = true }, command("Indexing Details…") { diagnostics = true }]),
-            menu("Help", [command("Search Syntax") { help = true }, command("About Anyseek") { error = "Anyseek 0.3.1\nIndependent macOS file search." }])
+            menu("Help", [command("Search Syntax") { help = true }, command("About Anyseek") { error = "Anyseek 0.4.0\nIndependent macOS file search." }])
         ]
     }
     private func search() async {
