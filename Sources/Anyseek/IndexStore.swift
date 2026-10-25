@@ -100,7 +100,7 @@ actor IndexEngine {
     private let engine: IndexEngine
     private let automaticVolumes: Bool
     private var volumeObservers: [NSObjectProtocol] = []
-    init(cacheURL: URL? = nil, selectedRoots: [String]? = nil) {
+    init(cacheURL: URL? = nil, selectedRoots: [String]? = nil, benchmarkFiles: [FileRecord]? = nil) {
         automaticVolumes = selectedRoots == nil
         cache = cacheURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Anyseek")
         cache = URL(fileURLWithPath: PathScope.canonical(cache.path))
@@ -108,6 +108,7 @@ actor IndexEngine {
         if let selectedRoots { roots = selectedRoots } else { roots = detectedVolumes() }
         roots = Array(Set(roots.map { PathScope.canonical($0) })).sorted()
         excluded = PathScope.compact(excluded.map { PathScope.canonical($0) })
+        if let benchmarkFiles { files = benchmarkFiles; revision = 1; status = "Performance fixture"; return }
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification, NSWorkspace.didWakeNotification] {
             volumeObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in Task { @MainActor [weak self] in self?.refreshVolumes(); self?.watch(); self?.rebuild() } })

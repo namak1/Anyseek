@@ -2,6 +2,7 @@ import AppKit
 import Carbon
 import QuickLookUI
 import SwiftUI
+import AnyseekCore
 
 extension Notification.Name {
     static let anyseekFocus = Notification.Name("anyseek.focus")
@@ -20,6 +21,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if CommandLine.arguments.contains("--ui-smoke-test") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in self?.smokeTest() }
+        }
+        if CommandLine.arguments.contains("--ui-performance-test") {
+            Task { @MainActor in await self.performanceTest() }
         }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "Anyseek")
@@ -47,6 +51,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.sendAction(Selector(("newWindow:")), to: nil, from: nil)
         }
         NotificationCenter.default.post(name: .anyseekFocus, object: nil)
+    }
+    @MainActor private func performanceTest() async {
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap { descendants($0) } }
+        func wait(_ condition: () -> Bool) async -> Bool {
+            for _ in 0..<6000 {
+                if condition() { return true }
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+            return false
+        }
+        var table: NSTableView?
+        let ready = await wait {
+            table = NSApp.windows.compactMap(\.contentView).flatMap { descendants($0) }.compactMap { $0 as? NSTableView }.first
+            return table?.numberOfRows == 1_000_000
+        }
+        guard ready, let table, let coordinator = table.dataSource as? FastResultsTable.Coordinator else {
+            fputs("UI performance: million-row table did not become ready\n", stderr); exit(1)
+        }
+        for (key, ascending) in [("size", true), ("size", false), ("modified", true), ("modified", false), ("name", true)] {
+            let generation = coordinator.generation, start = Date()
+            table.sortDescriptors = [NSSortDescriptor(key: key, ascending: ascending)]
+            guard await wait({ coordinator.generation > generation }) else { fputs("UI sort timed out\n", stderr); exit(1) }
+            table.layoutSubtreeIfNeeded(); table.displayIfNeeded()
+            let rows = coordinator.parent.files
+            guard rows.count == 1_000_000 else { exit(1) }
+            if key == "size", let first = rows.first, let last = rows.last {
+                guard ascending ? first.size <= last.size : first.size >= last.size else { exit(1) }
+            }
+            print("UI BENCHMARK 1000000: \(key) \(ascending ? "ascending" : "descending") click-to-table=\(Date().timeIntervalSince(start))s")
+        }
+        print("PASS: million-row native table column switching and reversal")
+        NSApp.terminate(nil)
     }
     private func smokeTest() {
         guard let window = NSApp.windows.first(where: { $0.canBecomeMain }), let content = window.contentView else { fputs("UI smoke: missing search window\n", stderr); exit(1) }

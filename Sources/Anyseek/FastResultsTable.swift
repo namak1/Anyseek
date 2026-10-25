@@ -43,7 +43,26 @@ struct FastResultsTable: NSViewRepresentable {
             c.generation = generation; c.updating = true
             table.reloadData()
             if selection.isEmpty { table.deselectAll(nil) }
-            else { table.selectRowIndexes(IndexSet(files.indices.filter { selection.contains(files[$0].path) }), byExtendingSelection: false) }
+            else {
+                // Restoring a selection after a sort must not scan millions of rows
+                // on the AppKit thread. Ignore obsolete restoration tasks.
+                c.restore?.cancel()
+                let wanted = selection, rows = files, token = generation
+                c.restore = Task.detached(priority: .userInitiated) { [weak c] in
+                    var positions = IndexSet()
+                    for row in rows.indices {
+                        if row & 4095 == 0 && Task.isCancelled { return }
+                        if wanted.contains(rows[row].path) { positions.insert(row) }
+                    }
+                    let selectedPositions = positions
+                    await MainActor.run {
+                        guard let c, c.generation == token, c.parent.selection == wanted, let table = c.table else { return }
+                        c.updating = true
+                        table.selectRowIndexes(selectedPositions, byExtendingSelection: false)
+                        c.updating = false
+                    }
+                }
+            }
             c.updating = false
             table.scrollRowToVisible(0)
         }
@@ -54,6 +73,7 @@ struct FastResultsTable: NSViewRepresentable {
         var generation = -1
         var fontSize = 0.0
         var updating = false
+        var restore: Task<Void, Never>?
         let date = DateFormatter()
         let icons = NSCache<NSString, NSImage>()
         init(_ parent: FastResultsTable) { self.parent = parent; date.dateStyle = .short; date.timeStyle = .short }

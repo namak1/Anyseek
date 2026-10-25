@@ -94,10 +94,11 @@ public struct SearchQuery {
             let parts = token.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
             let key = parts.count == 2 ? String(parts[0]).lowercased() : ""
             let value = parts.count == 2 ? String(parts[1]) : token
+            let literal = LiteralMatcher(value, sensitive: sensitive)
             switch key {
-            case "file": return .term { !$0.isDirectory && contains($0.name, value) }
-            case "folder": return .term { $0.isDirectory && contains($0.name, value) }
-            case "path", "in": return .term { contains($0.path, value) }
+            case "file": return .term { !$0.isDirectory && literal.matches($0.name) }
+            case "folder": return .term { $0.isDirectory && literal.matches($0.name) }
+            case "path", "in": return .term { literal.matches($0.path) }
             case "parent":
                 let parent = URL(fileURLWithPath: (value as NSString).expandingTildeInPath).standardizedFileURL.path
                 return .term { URL(fileURLWithPath: $0.path).deletingLastPathComponent().path == parent }
@@ -135,7 +136,8 @@ public struct SearchQuery {
                     }
                 } catch { self.error = "Invalid regular expression"; return .and([]) }
             }
-            return .term { contains(usePath ? $0.path : $0.name, token) }
+            let plain = LiteralMatcher(token, sensitive: sensitive)
+            return .term { plain.matches(usePath ? $0.path : $0.name) }
         }
         func number(_ raw: String) -> Double? {
             var text = raw.lowercased(); var factor = 1.0
@@ -171,5 +173,38 @@ public struct SearchQuery {
             guard ends.count == 2, let end = formatter.date(from: ends[1]), end >= start else { return nil }
             return (start, cal.date(byAdding: .day, value: 1, to: end)!)
         }
+    }
+}
+
+/// Avoid Foundation collation overhead for the common ASCII filename case.
+/// Non-ASCII names/queries retain Foundation's Unicode matching semantics.
+private struct LiteralMatcher {
+    let text: String
+    let sensitive: Bool
+    let bytes: [UInt8]?
+    init(_ text: String, sensitive: Bool) {
+        self.text = text; self.sensitive = sensitive
+        let raw = Array(text.utf8)
+        bytes = raw.allSatisfy { $0 < 128 } ? raw.map { sensitive ? $0 : Self.fold($0) } : nil
+    }
+    private static func fold(_ byte: UInt8) -> UInt8 { byte >= 65 && byte <= 90 ? byte + 32 : byte }
+    func matches(_ value: String) -> Bool {
+        if text.isEmpty { return true }
+        if let needle = bytes,
+           let fast = value.utf8.withContiguousStorageIfAvailable({ haystack -> Bool? in
+               guard haystack.allSatisfy({ $0 < 128 }) else { return nil }
+               guard haystack.count >= needle.count else { return false }
+               for start in 0...(haystack.count - needle.count) {
+                   var offset = 0
+                   while offset < needle.count {
+                       let byte = haystack[start + offset]
+                       if (sensitive ? byte : Self.fold(byte)) != needle[offset] { break }
+                       offset += 1
+                   }
+                   if offset == needle.count { return true }
+               }
+               return false
+           }), let found = fast { return found }
+        return value.range(of: text, options: sensitive ? [] : [.caseInsensitive]) != nil
     }
 }

@@ -48,12 +48,17 @@ extension ResultIndexTests {
 
 extension ResultIndexTests {
     func testAllOrdersMatchReferenceWithTiesAndUnicode() async throws {
-        let files = (0..<6000).map { i in
-            FileRecord(path: "/\(i % 2 == 0 ? "پوشه" : "Folder")/\((i * 7919) % 6001).txt", isDirectory: i % 3 == 0, size: Int64(i % 17 - 8), modified: Date(timeIntervalSinceReferenceDate: Double(i % 23 - 11) / 2))
+        var files: [FileRecord] = []
+        for i in 0..<6000 {
+            let folder = i % 2 == 0 ? "پوشه" : "Folder"
+            let name = String((i * 7919) % 6001) + ".txt"
+            let size = Int64(i % 17 - 8)
+            let date = Date(timeIntervalSinceReferenceDate: Double(i % 23 - 11) / 2)
+            files.append(FileRecord(path: "/" + folder + "/" + name, isDirectory: i % 3 == 0, size: size, modified: date))
         }
         let engine = ResultIndex()
         for column in ResultColumn.allCases {
-            let expected = files.sorted { a, b in
+            let expected: [FileRecord] = files.sorted { (a: FileRecord, b: FileRecord) -> Bool in
                 switch column {
                 case .name: return a.name == b.name ? a.path < b.path : a.name < b.name
                 case .path: return a.path < b.path

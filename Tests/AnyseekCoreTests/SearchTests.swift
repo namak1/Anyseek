@@ -59,3 +59,17 @@ extension SearchTests {
         XCTAssertFalse(SearchQuery("ext:pdfx").matches(file))
     }
 }
+
+extension SearchTests {
+    func testLiteralFastPathPreservesUnicodeSemantics() {
+        for name in ["Report-123.txt", "REPORT.txt", "گزارش.txt", "café.txt", "cafe\u{301}.txt", "Kelvin.txt", "Straße.txt"] {
+            let file = FileRecord(path: "/Folder/" + name, isDirectory: false, size: 0, modified: .distantPast)
+            for term in ["report", "REPORT", "txt", "گزارش", "café", "kelvin", "strasse", "missing"] {
+                for sensitive in [false, true] {
+                    let expected = name.range(of: term, options: sensitive ? [] : [.caseInsensitive]) != nil
+                    XCTAssertEqual(SearchQuery(term, caseSensitive: sensitive).matches(file), expected, "\(name) / \(term)")
+                }
+            }
+        }
+    }
+}

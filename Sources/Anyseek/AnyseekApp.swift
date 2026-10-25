@@ -119,7 +119,7 @@ struct SearchWindow: View {
         .sheet(isPresented: $diagnostics) {
             VStack(alignment: .leading) {
                 Text("Indexing & Selection Details").font(.headline)
-                ForEach(results.filter { selection.contains($0.path) }.prefix(5)) { file in
+                ForEach(Array(results.lazy.filter { selection.contains($0.path) }.prefix(5))) { file in
                     Text("\(file.name)\n\(file.path)\n\(file.size.formatted()) bytes · \(file.modified.formatted())").textSelection(.enabled)
                 }
                 Text("Offline roots keep their cached entries. Denied paths may need access in System Settings.").foregroundStyle(.secondary)
@@ -180,22 +180,24 @@ struct SearchWindow: View {
         let liveToken = index.liveRevision, removed = index.liveRemoved, updated = Array(index.liveUpdated.values)
         let signature = [text, selectedCategory, String(sensitive), String(path), String(whole), String(regular), String(hidden)].joined(separator: "\0")
         let engine = resultIndex
+        let wantedSelection = selection
         searching = true
         let worker = Task.detached(priority: .userInitiated) {
             let extensions: [String: Set<String>] = ["Documents": ["pdf", "doc", "docx", "txt", "rtf", "xlsx", "csv", "pptx", "md"], "Images": ["png", "jpg", "jpeg", "gif", "heic", "webp", "tiff", "svg"], "Audio": ["mp3", "m4a", "flac", "wav", "aac", "aiff", "ogg"], "Video": ["mp4", "mkv", "mov", "avi", "webm", "m4v"], "Archives": ["zip", "rar", "7z", "gz", "tar"]]
-            return try await engine.results(files: files, revision: revision, signature: signature, column: column, descending: descending, liveToken: liveToken, removed: removed, updated: updated) { file in
+            let rows = try await engine.results(files: files, revision: revision, signature: signature, column: column, descending: descending, liveToken: liveToken, removed: removed, updated: updated) { file in
                 if !hidden && file.path.split(separator: "/").contains(where: { $0.hasPrefix(".") }) { return false }
                 let categoryMatches = selectedCategory == "Everything" || (selectedCategory == "Folders" ? file.isDirectory : !file.isDirectory && (extensions[selectedCategory]?.contains((file.name as NSString).pathExtension.lowercased()) ?? false))
                 return categoryMatches && (text.isEmpty || parser.matches(file))
             }
+            let retained = wantedSelection.isEmpty ? Set<String>() : Set(rows.lazy.filter { wantedSelection.contains($0.path) }.map(\.path))
+            return (rows, retained)
         }
         do {
-            let filtered = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
+            let (filtered, retainedSelection) = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
             guard !Task.isCancelled else { return }
             results = hideEmptyResults && text.isEmpty ? .empty : filtered
             resultGeneration += 1; searching = false
-            // Selection reconciliation only examines selected rows, not every path.
-            if !selection.isEmpty { selection.formIntersection(Set(results.lazy.filter { selection.contains($0.path) }.map(\.path))) }
+            if selection == wantedSelection { selection = retainedSelection }
         } catch is CancellationError { }
         catch { searching = false; self.error = error.localizedDescription }
     }
@@ -264,6 +266,10 @@ struct SearchWindow: View {
 }
 
 @MainActor private func makeIndexStore() -> IndexStore {
+    if CommandLine.arguments.contains("--ui-performance-test") {
+        let files = (0..<1_000_000).map { i in FileRecord(path: "/Benchmark/Report-\(i).txt", isDirectory: false, size: Int64((i &* 7919) % 1_000_003), modified: Date(timeIntervalSince1970: Double(i))) }
+        return IndexStore(selectedRoots: [], benchmarkFiles: files)
+    }
     guard CommandLine.arguments.contains("--ui-smoke-test") else { return IndexStore() }
     let fm = FileManager.default
     let base = URL(fileURLWithPath: PathScope.canonical(fm.temporaryDirectory.path)).appendingPathComponent("Anyseek-UI-" + UUID().uuidString)
