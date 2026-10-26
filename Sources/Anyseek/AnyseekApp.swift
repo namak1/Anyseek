@@ -17,6 +17,7 @@ struct AnyseekApp: App {
 struct SearchWindow: View {
     @EnvironmentObject var index: IndexStore
     @AppStorage("lastQuery") private var query = ""
+    @State private var initialized = false
     @State private var wholeWord = false
     @State private var regex = false
     @State private var queryError: String?
@@ -148,7 +149,7 @@ struct SearchWindow: View {
         .alert("Anyseek", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
         .task(id: searchIdentity) { await followIndex() }
         .onChange(of: options) { visible in if !visible { history = UserDefaults.standard.stringArray(forKey: "history") ?? [] } }
-        .onAppear { query = ""; category = "Everything"; hideEmptyResults = false; searchFocused = true }
+        .onAppear { if !initialized { query = ""; category = "Everything"; hideEmptyResults = false; initialized = true }; searchFocused = true }
         .onReceive(NotificationCenter.default.publisher(for: .anyseekFocus)) { _ in searchFocused = true }
     }
     private var classicMenuBar: some View { NativeMenuBar(menus: nativeMenus).frame(height: 24) }
