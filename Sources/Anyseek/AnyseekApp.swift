@@ -205,8 +205,9 @@ struct SearchWindow: View {
         do {
             let filtered = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
             guard !Task.isCancelled else { return }
-            results = hideEmptyResults && text.isEmpty ? .empty : filtered
-            resultGeneration += 1; searching = false
+            let next = hideEmptyResults && text.isEmpty ? ResultRows.empty : filtered
+            if results.identity != next.identity { results = next; resultGeneration += 1 }
+            searching = false
         } catch is CancellationError { }
         catch { searching = false; self.error = error.localizedDescription }
     }

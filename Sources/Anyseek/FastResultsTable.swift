@@ -40,7 +40,7 @@ struct FastResultsTable: NSViewRepresentable {
         table.usesAlternatingRowBackgroundColors = alternate; table.rowHeight = fontSize + 6
         table.intercellSpacing = NSSize(width: 3, height: 0); table.backgroundColor = .white
         let currentSelection = Set(table.selectedRowIndexes.filter { files.indices.contains($0) }.map { files[$0].path })
-        if c.generation != generation || c.fontSize != fontSize || currentSelection != selection {
+        if c.generation != generation || c.fontSize != fontSize || (currentSelection != selection && c.restoringSelection != selection) {
             c.fontSize = fontSize
             c.generation = generation; c.updating = true
             table.reloadData()
@@ -50,6 +50,7 @@ struct FastResultsTable: NSViewRepresentable {
                 // on the AppKit thread. Ignore obsolete restoration tasks.
                 c.restore?.cancel()
                 let wanted = selection, rows = files, token = generation
+                c.restoringSelection = wanted
                 let oldRecords = table.selectedRowIndexes.compactMap { previous.indices.contains($0) ? previous[$0] : nil }
                 c.restore = Task.detached(priority: .userInitiated) { [c] in
                     var positions = IndexSet()
@@ -71,6 +72,7 @@ struct FastResultsTable: NSViewRepresentable {
                         guard c.generation == token, c.parent.selection == wanted, let table = c.table else { return }
                         c.updating = true
                         table.selectRowIndexes(selectedPositions, byExtendingSelection: false)
+                        c.restoringSelection = nil
                         c.parent.selection = surviving
                         c.updating = false
                     }
@@ -87,6 +89,7 @@ struct FastResultsTable: NSViewRepresentable {
         var fontSize = 0.0
         var updating = false
         var restore: Task<Void, Never>?
+        var restoringSelection: Set<String>?
         let date = DateFormatter()
         let icons = NSCache<NSString, NSImage>()
         init(_ parent: FastResultsTable) { self.parent = parent; date.dateStyle = .short; date.timeStyle = .short }

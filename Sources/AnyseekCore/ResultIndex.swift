@@ -7,13 +7,15 @@ public enum ResultColumn: String, CaseIterable { case name, path, size, modified
 public struct ResultRows: RandomAccessCollection {
     public typealias Index = Int
     public typealias Element = FileRecord
+    public let identity: String
     private let base: [FileRecord]
     private let overlay: [FileRecord]
     private let rows: [Int]
     private let descending: Bool
     private let column: ResultColumn
     public static let empty = ResultRows(base: [], overlay: [], rows: [], descending: false, column: .name)
-    fileprivate init(base: [FileRecord], overlay: [FileRecord], rows: [Int], descending: Bool, column: ResultColumn) {
+    fileprivate init(base: [FileRecord], overlay: [FileRecord], rows: [Int], descending: Bool, column: ResultColumn, identity: String = UUID().uuidString) {
+        self.identity = identity
         self.base = base; self.overlay = overlay; self.rows = rows; self.descending = descending; self.column = column
     }
     public var startIndex: Int { 0 }
@@ -58,6 +60,8 @@ public actor ResultIndex {
     private var visible: [Bool] = []
     private var membership: [Bool] = []
     private var overlayMatches: [Int] = []
+    private var lastRemoved: Set<String> = []
+    private var orderIdentities: [ResultColumn: String] = [:]
     private var queryOrders: [ResultColumn: [Int]] = [:]
     public init() { }
 
@@ -73,7 +77,8 @@ public actor ResultIndex {
             self.revision = revision; self.signature = nil; self.liveToken = -1
         }
         let queryChanged = self.signature != signature
-        let liveChanged = self.liveToken != liveToken
+        let liveChanged = self.liveToken != liveToken && (self.liveToken == -1 || lastRemoved != removed || overlay != updated)
+        if !liveChanged { self.liveToken = liveToken }
         if queryChanged {
             self.signature = nil
             var next = [Bool](); next.reserveCapacity(base.count)
@@ -102,7 +107,7 @@ public actor ResultIndex {
                 if i & 4095 == 0 { try Task.checkCancellation() }
                 next.append(!changed.contains(base[i].path) && !deleted(base[i].path))
             }
-            visible = next; overlay = updated
+            visible = next; overlay = updated; lastRemoved = removed
         }
         if queryChanged || liveChanged {
             // Commit tokens only after cancellable work completes. A cancelled request
@@ -133,8 +138,9 @@ public actor ResultIndex {
             }
             try Task.checkCancellation()
             queryOrders[column] = selected
+            orderIdentities[column] = UUID().uuidString
         }
-        return ResultRows(base: base, overlay: overlay, rows: queryOrders[column]!, descending: descending, column: column)
+        return ResultRows(base: base, overlay: overlay, rows: queryOrders[column]!, descending: descending, column: column, identity: orderIdentities[column]! + String(descending))
     }
 
     /// Explicit preparation for benchmarks; the UI does not enqueue speculative
