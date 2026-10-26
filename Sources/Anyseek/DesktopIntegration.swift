@@ -132,8 +132,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let png = bitmap.representation(using: .png, properties: [:]) else { exit(1) }
             try png.write(to: url)
             print("PASS: macOS search window and native results table rendered")
-            NSApp.terminate(nil)
+            Task { @MainActor in await self.spaceSmokeTest() }
         } catch { fputs("UI smoke: \(error)\n", stderr); exit(1) }
+    }
+    @MainActor private func spaceSmokeTest() async {
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap { descendants($0) } }
+        NotificationCenter.default.post(name: .spaceManagerTest, object: nil)
+        var canvas: SpaceMapCanvas?
+        for _ in 0..<200 {
+            canvas = NSApp.windows.compactMap(\.contentView).flatMap { descendants($0) }.compactMap { $0 as? SpaceMapCanvas }.first
+            if let canvas, !canvas.tiles.isEmpty { break }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        guard let canvas, let model = canvas.model, !canvas.tiles.isEmpty,
+              let content = canvas.window?.contentView else { fputs("Space Manager map missing\n", stderr); exit(1) }
+        content.layoutSubtreeIfNeeded()
+        if let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
+            content.cacheDisplay(in: content.bounds, to: bitmap)
+            if let data = bitmap.representation(using: .png, properties: [:]) { try? data.write(to: URL(fileURLWithPath: "dist/Anyseek-space-manager.png")) }
+        }
+        // Drive a real double-click on a folder tile, then verify the zoom root.
+        guard let tile = canvas.tiles.first(where: { $0.node.map { model.tree.nodes[$0].isDirectory } ?? false }), let id = tile.node else { exit(1) }
+        let target = model.tree.nodes[id].path
+        let point = canvas.convert(NSPoint(x: tile.rect.midX,y: tile.rect.minY + 5), to: nil)
+        guard let event = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: canvas.window!.windowNumber, context: nil, eventNumber: 1, clickCount: 2, pressure: 1) else { exit(1) }
+        canvas.mouseDown(with: event)
+        for _ in 0..<100 {
+            if let next = canvas.model, next.tree.nodes[next.root].path == target {
+                print("PASS: Space Manager tab, treemap rendering and folder double-click zoom")
+                NSApp.terminate(nil); return
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        fputs("Space Manager zoom failed\n", stderr); exit(1)
     }
     func applicationWillTerminate(_ notification: Notification) {
         if let hotKey { UnregisterEventHotKey(hotKey) }

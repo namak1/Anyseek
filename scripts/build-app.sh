@@ -18,7 +18,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>Anyseek</string>
 <key>CFBundleIconFile</key><string>Anyseek</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.4.0</string>
+<key>CFBundleShortVersionString</key><string>0.5.0</string>
 <key>CFBundleVersion</key><string>2</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
@@ -26,6 +26,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 PLIST
 plutil -lint "$APP/Contents/Info.plist"
 lipo "$APP/Contents/MacOS/Anyseek" -verify_arch arm64 x86_64
+cp ThirdParty/SpaceMonger-LICENSE.txt "$APP/Contents/Resources/SpaceMonger-LICENSE.txt"
 codesign --force --deep --sign - "$APP"
 ditto -c -k --sequesterRsrc --keepParent "$APP" dist/Anyseek-macos.zip
 
@@ -41,7 +42,8 @@ INSTALL ANYSEEK
 1. Drag Anyseek.app onto the Applications folder beside it.
 2. Eject the Anyseek disk image.
 3. Open Applications and double-click Anyseek.
-4. Click Add Folders and select the folders or drives you want to search.
+4. Search opens automatically with your main drive and connected drives.
+5. Use the Space Manager tab to explore file sizes as a map.
 
 No Terminal, coding tools, or additional software is needed.
 Requires macOS 13 or later. Supports Apple Silicon and Intel Macs.

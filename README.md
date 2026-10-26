@@ -84,3 +84,11 @@ This is a working file-search application, **not a claim of complete or indistin
 Search uses shared metadata, integer row references, reusable drive-wide sort orders, radix sorting for size/date, and constant-time direction reversal. The native table virtualizes rows; live changes use an overlay without invalidating base sort orders. CI exercises one million synthetic records in both optimized engine tests and the actual native table. See [performance architecture and benchmark methodology](docs/PERFORMANCE.md). These checks do not establish speed parity with Everything on your hardware. Initial disk scans, memory use, and real-drive workloads still need profiling. No affiliation with voidtools is implied.
 
 Opening one top-level menu enables hover switching across the other menu titles, using native menu tracking. Protected locations remain subject to macOS access permissions.
+
+## Space Manager tab (0.5)
+
+Anyseek includes a native disk map using a Swift adaptation of SpaceMonger 1.4's greedy balanced binary treemap layout. Select a drive from Open, explore nested size rectangles, double-click folders to zoom, and use Zoom Out/Zoom Full to navigate. Hover for paths and sizes; right-click for Open, Reveal in Finder, Copy Path and confirmed Move to Trash. Setup controls density, orientation, size labels and deletion availability.
+
+The map builds from Anyseek's saved index and live overlay on a background task. Its totals are logical sizes of indexed files, not a complete physical APFS storage report. Inaccessible/excluded files, snapshots, clones and shared blocks are not reconciled. Empty/zero-byte entries have no proportional area; small items are grouped and can be explored by zooming into their parent. Root `/` excludes removable drives under `/Volumes`; choose those separately in Open.
+
+Original layout engineering: Sean Werkema, SpaceMonger 1.4, MIT. See [third-party license](ThirdParty/SpaceMonger-LICENSE.txt), also bundled inside the app's Resources directory. This is an integrated macOS adaptation, not an official SpaceMonger release.
