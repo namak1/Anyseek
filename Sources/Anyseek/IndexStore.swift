@@ -114,6 +114,7 @@ actor IndexEngine {
             Task { [weak self] in
                 while let self {
                     try? await Task.sleep(nanoseconds: 50_000_000)
+                    self.liveUpdated["/Benchmark/Report-0.txt"] = FileRecord(path: "/Benchmark/Report-0.txt", isDirectory: false, size: Int64(self.liveRevision % 17), modified: .distantPast)
                     self.liveRevision += 1
                 }
             }

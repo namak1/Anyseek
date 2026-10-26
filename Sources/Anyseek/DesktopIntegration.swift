@@ -102,6 +102,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             print("UI BENCHMARK 1000000: \(key) \(ascending ? "ascending" : "descending") click-to-table=\(Date().timeIntervalSince(start))s")
         }
+        guard let window = table.window, let content = window.contentView,
+              let field = descendants(content).compactMap({ $0 as? NSTextField }).first(where: { $0.isEditable }) else { exit(1) }
+        window.makeFirstResponder(field)
+        guard let editor = window.fieldEditor(true, for: field) as? NSTextView else { exit(1) }
+        for (text, count) in [("Report-123", 1111), ("Report-12345", 11), ("no-such-file", 0), ("", 1_000_000)] {
+            let start = Date()
+            editor.insertText(text, replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
+            guard await wait({ table.numberOfRows == count }) else { fputs("Typed query did not update results\n", stderr); exit(1) }
+            if !text.isEmpty {
+                guard coordinator.parent.files.allSatisfy({ $0.name.contains(text) }) else { exit(1) }
+            }
+            let elapsed = Date().timeIntervalSince(start)
+            print("TYPING BENCHMARK: \(text) results=\(count) elapsed=\(elapsed)s")
+            guard elapsed < 3 else { fputs("Typed query exceeded responsiveness budget\n", stderr); exit(1) }
+        }
         print("PASS: million-row native table column switching and reversal")
         NSApp.terminate(nil)
     }
