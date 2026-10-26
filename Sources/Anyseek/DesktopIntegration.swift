@@ -3,6 +3,7 @@ import Carbon
 import QuickLookUI
 import SwiftUI
 import AnyseekCore
+import CoreGraphics
 
 extension Notification.Name {
     static let anyseekFocus = Notification.Name("anyseek.focus")
@@ -148,9 +149,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let content = canvas.window?.contentView else { fputs("Space Manager map missing\n", stderr); exit(1) }
         try? await Task.sleep(nanoseconds: 500_000_000)
         content.layoutSubtreeIfNeeded(); content.displayIfNeeded()
-        if let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
-            content.cacheDisplay(in: content.bounds, to: bitmap)
-            if let data = bitmap.representation(using: .png, properties: [:]) { try? data.write(to: URL(fileURLWithPath: "dist/Anyseek-space-manager.png")) }
+        if let window = canvas.window {
+            window.makeKeyAndOrderFront(nil); window.displayIfNeeded()
+            if let capture = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(window.windowNumber), [.boundsIgnoreFraming, .bestResolution]) {
+                let bitmap = NSBitmapImageRep(cgImage: capture)
+                if let data = bitmap.representation(using: .png, properties: [:]) { try? data.write(to: URL(fileURLWithPath: "dist/Anyseek-space-manager.png")) }
+            } else { fputs("Window compositor capture unavailable\n", stderr); exit(1) }
         }
         // Drive a real double-click on a folder tile, then verify the zoom root.
         guard let tile = canvas.tiles.first(where: { $0.node.map { model.tree.nodes[$0].isDirectory } ?? false }), let id = tile.node else { exit(1) }
