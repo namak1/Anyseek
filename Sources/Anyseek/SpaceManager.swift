@@ -27,6 +27,8 @@ struct SpaceManager: View {
     @State private var message: String?
     @State private var confirmTrash = false
     @State private var showSetup = false
+    @State private var volumeSpace: (total: Double, free: Double)?
+    @AppStorage("spaceShowFreeSpace") private var showFreeSpace = false
     @AppStorage("spaceDensity") private var density = 3
     @AppStorage("spaceBias") private var bias = 0
     @AppStorage("spaceShowSizes") private var showSizes = true
@@ -38,14 +40,42 @@ struct SpaceManager: View {
     }
     var body: some View {
         VStack(spacing: 0) {
-            toolbar
+            toolbar.fixedSize(horizontal: false, vertical: true).layoutPriority(1)
             HStack {
                 Text(zoom.isEmpty ? root : zoom).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
                 Spacer()
+                Toggle("Show Free Space", isOn: $showFreeSpace).toggleStyle(.checkbox)
                 if building { ProgressView().controlSize(.small); Text("Updating map…") }
-            }.font(.system(size: 12)).padding(7)
+            }.font(.system(size: 12)).padding(7).fixedSize(horizontal: false, vertical: true)
+            if showFreeSpace {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let space = volumeSpace {
+                        HStack {
+                            Text("Volume free: \(size(space.free))")
+                            Spacer()
+                            Text("Used: \(size(space.total - space.free)) · Total: \(size(space.total))")
+                        }
+                        GeometryReader { geometry in
+                            HStack(spacing: 0) {
+                                Color.gray.opacity(0.45).frame(width: geometry.size.width * CGFloat(1 - space.free / space.total))
+                                Color.green.opacity(0.65)
+                            }
+                        }.frame(height: 12).clipShape(RoundedRectangle(cornerRadius: 3))
+                        Text("Green = free space on this volume. The map below shows indexed files in the selected folder.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Volume free space unavailable").foregroundStyle(.secondary)
+                    }
+                }.font(.system(size: 11)).padding(.horizontal, 8).padding(.bottom, 7)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let tree, !tree.nodes.isEmpty, tree.nodes[current].bytes > 0 {
-                SpaceMap(tree: tree, root: current, selection: $selected, density: density, bias: bias, showSizes: showSizes, open: activate, reveal: reveal, trash: { selected = $0; confirmTrash = true }, allowDelete: allowDelete)
+                GeometryReader { geometry in
+                    SpaceMap(tree: tree, root: current, selection: $selected, density: density, bias: bias, showSizes: showSizes, open: activate, reveal: reveal, trash: { selected = $0; confirmTrash = true }, allowDelete: allowDelete)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                }
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             } else {
                 VStack(spacing: 12) {
                     Image(systemName: "internaldrive").font(.system(size: 40)).foregroundStyle(.secondary)
@@ -59,7 +89,7 @@ struct SpaceManager: View {
                 else if let tree { Text("\(size(tree.nodes[current].bytes)) in indexed files") }
                 Spacer()
                 Text(index.indexing ? "Indexing · map is partial" : "Indexed file sizes · not physical APFS usage").foregroundStyle(.secondary)
-            }.font(.system(size: 11)).padding(6)
+            }.font(.system(size: 11)).padding(6).fixedSize(horizontal: false, vertical: true)
         }
         .onAppear { active = true; if !index.roots.contains(root), let first = index.roots.first { root = first } }
         .onDisappear { active = false }
@@ -120,8 +150,21 @@ struct SpaceManager: View {
         catch { message = error.localizedDescription }
     }
     private func followIndex() async {
-        var lastRevision = -1, lastLive = -1
+        var lastRevision = -1, lastLive = -1, capacityTick = 0
+        volumeSpace = nil
         while !Task.isCancelled {
+            if capacityTick % 10 == 0 {
+                let scope = root
+                let capacity = await Task.detached(priority: .utility) { () -> (total: Double, free: Double)? in
+                    guard let values = try? URL(fileURLWithPath: scope).resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey]),
+                          let total = values.volumeTotalCapacity, total > 0,
+                          let free = values.volumeAvailableCapacity else { return nil }
+                    return (Double(total), Double(max(0, min(total, free))))
+                }.value
+                guard !Task.isCancelled else { return }
+                volumeSpace = capacity
+            }
+            capacityTick += 1
             if lastRevision != index.revision || lastLive != index.liveRevision {
                 let revision = index.revision, live = index.liveRevision
                 let files = index.files, removed = index.liveRemoved, updated = Array(index.liveUpdated.values), scope = root

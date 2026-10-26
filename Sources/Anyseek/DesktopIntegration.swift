@@ -71,6 +71,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard ready, let table, let coordinator = table.dataSource as? FastResultsTable.Coordinator else {
             fputs("UI performance: million-row table did not become ready\n", stderr); exit(1)
         }
+        guard table.sortDescriptors.first?.key == "size", table.sortDescriptors.first?.ascending == false,
+              zip(coordinator.parent.files, coordinator.parent.files.dropFirst()).allSatisfy({ $0.0.size >= $0.1.size }) else {
+            fputs("Default results must be sorted largest first\n", stderr); exit(1)
+        }
         fputs("PERF: results ready\n", stderr)
         table.selectRowIndexes(IndexSet(integer: 500000), byExtendingSelection: false)
         let selectedPath = coordinator.parent.files[500000].path
@@ -149,7 +153,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let content = canvas.window?.contentView else { fputs("Space Manager map missing\n", stderr); exit(1) }
         try? await Task.sleep(nanoseconds: 500_000_000)
         content.layoutSubtreeIfNeeded(); content.displayIfNeeded()
+        // Check after the native map loads, including the smallest supported window.
         if let window = canvas.window {
+            let originalSize = content.bounds.size
+            for size in [NSSize(width: 780, height: 460), originalSize] {
+                window.setContentSize(size)
+                content.layoutSubtreeIfNeeded(); content.displayIfNeeded()
+                let mapRect = canvas.convert(canvas.bounds, to: content)
+                for title in ["Reload", "Zoom In", "Zoom Out", "Zoom Full", "Run or Open", "Delete", "Setup"] {
+                    guard let button = descendants(content).compactMap({ $0 as? NSButton }).first(where: { $0.title == title }),
+                          !button.isHiddenOrHasHiddenAncestor else {
+                        fputs("Space Manager toolbar button missing: \(title)\n", stderr); exit(1)
+                    }
+                    let rect = button.convert(button.bounds, to: content)
+                    guard rect.height > 0, content.bounds.contains(rect), !mapRect.intersects(rect) else {
+                        fputs("Space Manager toolbar clipped or covered: \(title)\n", stderr); exit(1)
+                    }
+                }
+            }
             window.makeKeyAndOrderFront(nil); window.displayIfNeeded()
             if let capture = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(window.windowNumber), [.boundsIgnoreFraming, .bestResolution]) {
                 let bitmap = NSBitmapImageRep(cgImage: capture)

@@ -39,8 +39,8 @@ struct SearchWindow: View {
     @State private var resultGeneration = 0
     @State private var searching = false
     @State private var selection = Set<String>()
-    @State private var sortColumn: ResultColumn = .name
-    @State private var sortDescending = false
+    @State private var sortColumn: ResultColumn = .size
+    @State private var sortDescending = true
     @State private var folders = false
     @State private var options = false
     @State private var advanced = false
