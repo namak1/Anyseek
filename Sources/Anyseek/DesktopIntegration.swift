@@ -53,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.post(name: .anyseekFocus, object: nil)
     }
     @MainActor private func performanceTest() async {
+        fputs("PERF: waiting for window\n", stderr)
         func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap { descendants($0) } }
         func wait(_ condition: () -> Bool) async -> Bool {
             for _ in 0..<6000 {
@@ -69,9 +70,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard ready, let table, let coordinator = table.dataSource as? FastResultsTable.Coordinator else {
             fputs("UI performance: million-row table did not become ready\n", stderr); exit(1)
         }
+        fputs("PERF: results ready\n", stderr)
         table.selectRowIndexes(IndexSet(integer: 500000), byExtendingSelection: false)
         let selectedPath = coordinator.parent.files[500000].path
         for (key, ascending) in [("size", true), ("size", false), ("modified", true), ("modified", false), ("name", true)] {
+            fputs("PERF: clicking \(key)\n", stderr)
             let generation = coordinator.generation, start = Date()
             guard let header = table.headerView, let window = table.window,
                   let column = table.tableColumns.firstIndex(where: { $0.identifier.rawValue == key }) else { exit(1) }
