@@ -158,6 +158,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let originalSize = content.bounds.size
             for size in [NSSize(width: 780, height: 460), originalSize] {
                 window.setContentSize(size)
+                // Let SwiftUI finish its resize transaction before inspecting AppKit.
+                try? await Task.sleep(nanoseconds: 250_000_000)
                 content.layoutSubtreeIfNeeded(); content.displayIfNeeded()
                 let mapRect = canvas.convert(canvas.bounds, to: content)
                 for title in ["Reload", "Zoom In", "Zoom Out", "Zoom Full", "Run or Open", "Delete", "Setup"] {

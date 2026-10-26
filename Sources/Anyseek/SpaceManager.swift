@@ -102,22 +102,15 @@ struct SpaceManager: View {
         .sheet(isPresented: $showSetup) { settings }
     }
     private var toolbar: some View {
-        HStack(spacing: 10) {
-            Menu("Open") {
-                ForEach(index.roots, id: \.self) { path in Button(path == "/" ? "Main Drive (/)" : path) { root = path; zoom = ""; selected = nil } }
-                Divider(); Button("Choose Folder…", action: chooseFolder)
-            }
-            Button("Reload") { index.rebuild() }
-            Divider().frame(height: 18)
-            Button("Zoom In") { if let node = selectedNode { activate(node.path) } }.disabled(selectedNode?.isDirectory != true)
-            Button("Zoom Out", action: zoomOut).disabled(zoom.isEmpty || zoom == root)
-            Button("Zoom Full") { zoom = ""; selected = nil }
-            Divider().frame(height: 18)
-            Button("Run or Open") { if let selected { NSWorkspace.shared.open(URL(fileURLWithPath: selected)) } }.disabled(selected == nil)
-            Button("Delete") { confirmTrash = true }.disabled(selected == nil || !allowDelete || selected == root)
-            Spacer()
-            Button("Setup") { showSetup = true }
-        }.buttonStyle(.borderless).font(.system(size: 12)).padding(8).background(Color(nsColor: .controlBackgroundColor))
+        SpaceToolbar(roots: index.roots, canZoomIn: selectedNode?.isDirectory == true,
+                     canZoomOut: !zoom.isEmpty && zoom != root, hasSelection: selected != nil,
+                     canDelete: selected != nil && allowDelete && selected != root,
+                     chooseRoot: { root = $0; zoom = ""; selected = nil }, chooseFolder: chooseFolder,
+                     reload: { index.rebuild() }, zoomIn: { if let node = selectedNode { activate(node.path) } },
+                     zoomOut: zoomOut, zoomFull: { zoom = ""; selected = nil },
+                     open: { if let selected { NSWorkspace.shared.open(URL(fileURLWithPath: selected)) } },
+                     delete: { confirmTrash = true }, setup: { showSetup = true })
+            .frame(height: 36)
     }
     private var settings: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -282,4 +275,60 @@ final class SpaceMapCanvas: NSView, NSViewToolTipOwner {
         let tile = tiles[hit], node = model.tree.nodes[tile.node ?? tile.parent]
         return "\(node.path)\n\(ByteCountFormatter.string(fromByteCount: Int64(min(Double(Int64.max - 1024),tile.bytes)), countStyle: .file))\(tile.node == nil ? " in smaller items; double-click to zoom into parent" : "")"
     }
+}
+
+// Use native controls so the toolbar has a stable height and inspectable buttons.
+struct SpaceToolbar: NSViewRepresentable {
+    let roots: [String]
+    let canZoomIn: Bool
+    let canZoomOut: Bool
+    let hasSelection: Bool
+    let canDelete: Bool
+    let chooseRoot: (String) -> Void
+    let chooseFolder: () -> Void
+    let reload: () -> Void
+    let zoomIn: () -> Void
+    let zoomOut: () -> Void
+    let zoomFull: () -> Void
+    let open: () -> Void
+    let delete: () -> Void
+    let setup: () -> Void
+    func makeNSView(context: Context) -> NSStackView {
+        let stack = NSStackView()
+        stack.orientation = .horizontal; stack.alignment = .centerY; stack.spacing = 10
+        stack.edgeInsets = NSEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
+        let menu = NSPopUpButton(frame: .zero, pullsDown: true)
+        stack.addArrangedSubview(menu)
+        for title in ["Reload", "Zoom In", "Zoom Out", "Zoom Full", "Run or Open", "Delete", "Setup"] {
+            let button = SpaceToolbarButton(title: title, target: nil, action: nil)
+            button.bezelStyle = .rounded; button.controlSize = .small
+            button.font = .systemFont(ofSize: 12)
+            button.target = button; button.action = #selector(SpaceToolbarButton.invoke)
+            button.setContentCompressionResistancePriority(.required, for: .horizontal)
+            stack.addArrangedSubview(button)
+        }
+        return stack
+    }
+    func updateNSView(_ stack: NSStackView, context: Context) {
+        if let popup = stack.arrangedSubviews.first as? NSPopUpButton {
+            let menu = NSMenu()
+            menu.addItem(withTitle: "Open", action: nil, keyEquivalent: "")
+            for path in roots {
+                menu.addItem(MenuCommand(path == "/" ? "Main Drive (/)" : path) { chooseRoot(path) })
+            }
+            menu.addItem(.separator())
+            menu.addItem(MenuCommand("Choose Folder…", action: chooseFolder))
+            popup.menu = menu
+        }
+        let actions: [(Bool, () -> Void)] = [(true, reload), (canZoomIn, zoomIn), (canZoomOut, zoomOut),
+            (true, zoomFull), (hasSelection, open), (canDelete, delete), (true, setup)]
+        for (view, action) in zip(stack.arrangedSubviews.dropFirst(), actions) {
+            guard let button = view as? SpaceToolbarButton else { continue }
+            button.isEnabled = action.0; button.handler = action.1
+        }
+    }
+}
+final class SpaceToolbarButton: NSButton {
+    var handler: (() -> Void)?
+    @objc func invoke() { handler?() }
 }
