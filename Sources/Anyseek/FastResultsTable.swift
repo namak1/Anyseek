@@ -41,6 +41,7 @@ struct FastResultsTable: NSViewRepresentable {
         table.intercellSpacing = NSSize(width: 3, height: 0); table.backgroundColor = .white
         let currentSelection = Set(table.selectedRowIndexes.filter { files.indices.contains($0) }.map { files[$0].path })
         if c.generation != generation || c.fontSize != fontSize || (currentSelection != selection && c.restoringSelection != selection) {
+            let oldRecords = table.selectedRowIndexes.compactMap { previous.indices.contains($0) ? previous[$0] : nil }
             c.fontSize = fontSize
             c.generation = generation; c.updating = true
             table.reloadData()
@@ -51,7 +52,12 @@ struct FastResultsTable: NSViewRepresentable {
                 c.restore?.cancel()
                 let wanted = selection, rows = files, token = generation
                 c.restoringSelection = wanted
-                let oldRecords = table.selectedRowIndexes.compactMap { previous.indices.contains($0) ? previous[$0] : nil }
+                let direct = oldRecords.filter { wanted.contains($0.path) }.compactMap { rows.position(of: $0) }
+                if direct.count == wanted.count {
+                    table.selectRowIndexes(IndexSet(direct), byExtendingSelection: false)
+                    c.restoringSelection = nil; c.updating = false
+                    return
+                }
                 c.restore = Task.detached(priority: .userInitiated) { [c] in
                     var positions = IndexSet()
                     var missing = wanted

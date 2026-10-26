@@ -181,7 +181,7 @@ struct SearchWindow: View {
                 await search()
                 publishedRevision = revision; publishedLiveRevision = liveRevision
             }
-            do { try await Task.sleep(nanoseconds: 100_000_000) } catch { return }
+            do { try await Task.sleep(nanoseconds: 300_000_000) } catch { return }
         }
     }
     private func search() async {
