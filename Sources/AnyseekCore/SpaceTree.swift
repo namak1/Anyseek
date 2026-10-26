@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 public struct SpaceNode {
     public let path: String

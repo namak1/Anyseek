@@ -1,4 +1,5 @@
 import XCTest
+import CoreGraphics
 @testable import AnyseekCore
 final class SpaceTreeTests: XCTestCase {
     private func file(_ path: String, _ bytes: Int64, folder: Bool = false) -> FileRecord {
