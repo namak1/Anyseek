@@ -287,6 +287,7 @@ struct SearchWindow: View {
     do {
         try fm.createDirectory(at: root.appendingPathComponent("Voyages"), withIntermediateDirectories: true)
         try "Sample invoice".write(to: root.appendingPathComponent("Flora invoice.txt"), atomically: true, encoding: .utf8)
+        try String(repeating: "Voyage data\n", count: 256).write(to: root.appendingPathComponent("Voyages/Plan.txt"), atomically: true, encoding: .utf8)
         try "Vessel,Port\nFlora,Jebel Ali".write(to: root.appendingPathComponent("Schedule.csv"), atomically: true, encoding: .utf8)
     } catch { fputs("UI fixture failed: \(error)\n", stderr); exit(1) }
     return IndexStore(cacheURL: base.appendingPathComponent("cache"), selectedRoots: [root.path])
