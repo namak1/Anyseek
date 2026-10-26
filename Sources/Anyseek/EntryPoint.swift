@@ -77,5 +77,21 @@ import AnyseekCore
         try fm.removeItem(at: moved)
         try await waitFor({ !store.containsLive(moved.path) }, "FSEvents deletion failed")
         print("PASS: live FSEvents create/rename/delete")
+        // Simulate quitting midway through a first scan, then reopening a new release.
+        let partialRoot = base.appendingPathComponent("partial-files")
+        let partialCache = base.appendingPathComponent("partial-cache")
+        try fm.createDirectory(at: partialRoot, withIntermediateDirectories: true)
+        for i in 0..<2100 { try Data([1]).write(to: partialRoot.appendingPathComponent("file-\(i)")) }
+        let partialEngine = IndexEngine(cache: partialCache)
+        let interrupted = Task {
+            try await partialEngine.scan(scopes: [partialRoot.path], roots: [partialRoot.path], excluded: [], progress: { _ in }, snapshot: { _ in
+                withUnsafeCurrentTask { $0?.cancel() }
+            })
+        }
+        do { _ = try await interrupted.value; try require(false, "Expected interrupted first scan") }
+        catch is CancellationError { }
+        let restored = try await IndexEngine(cache: partialCache).load()
+        try require(restored.count >= 2000, "Interrupted scan checkpoint lost after reopening")
+        print("PASS: partial first-scan progress survives restart")
     }
 }

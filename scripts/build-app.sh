@@ -39,11 +39,14 @@ ln -s /Applications "$STAGING/Applications"
 cat > "$STAGING/Install Anyseek.txt" <<'INSTALL'
 INSTALL ANYSEEK
 
-1. Drag Anyseek.app onto the Applications folder beside it.
-2. Eject the Anyseek disk image.
-3. Open Applications and double-click Anyseek.
-4. Search opens automatically with your main drive and connected drives.
-5. Use the Space Manager tab to explore file sizes as a map.
+1. Quit the existing Anyseek before upgrading (menu bar > Quit Anyseek).
+2. Drag Anyseek.app onto Applications and choose Replace if asked.
+   Your index and settings are kept outside the app and survive replacement.
+   Do not use an app cleaner to remove Anyseek data when upgrading.
+3. Eject the Anyseek disk image.
+4. Open Applications and double-click Anyseek.
+5. Search opens automatically with your main drive and connected drives.
+6. Use the Space Manager tab to explore file sizes as a map.
 
 No Terminal, coding tools, or additional software is needed.
 Requires macOS 13 or later. Supports Apple Silicon and Intel Macs.

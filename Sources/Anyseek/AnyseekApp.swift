@@ -149,7 +149,7 @@ struct SearchWindow: View {
         .alert("Anyseek", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
         .task(id: searchIdentity) { await followIndex() }
         .onChange(of: options) { visible in if !visible { history = UserDefaults.standard.stringArray(forKey: "history") ?? [] } }
-        .onAppear { if !initialized { query = ""; category = "Everything"; hideEmptyResults = false; initialized = true }; searchFocused = true }
+        .onAppear { if !initialized { initialized = true }; searchFocused = true }
         .onReceive(NotificationCenter.default.publisher(for: .anyseekFocus)) { _ in searchFocused = true }
     }
     private var classicMenuBar: some View { NativeMenuBar(menus: nativeMenus).frame(height: 24) }

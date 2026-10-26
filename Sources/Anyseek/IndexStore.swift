@@ -26,11 +26,19 @@ actor IndexEngine {
         let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey]
         func excludedPath(_ path: String) -> Bool { PathScope.isTrash(path) || PathScope.contains(cache.path, path) || excluded.contains { PathScope.contains($0, path) } }
         var lastSnapshot = Date.distantPast
+        var checkpoint: [FileRecord] = []
+        // Preserve partial progress when a scan is cancelled during an update/quit.
+        defer { if !checkpoint.isEmpty { try? db().replace(scopes: [], records: checkpoint) } }
         func record(_ url: URL) throws {
             let values = try url.resourceValues(forKeys: keys)
-            collected[url.path] = FileRecord(path: url.path, isDirectory: values.isDirectory ?? false, size: Int64(values.fileSize ?? 0), modified: values.contentModificationDate ?? .distantPast)
+            let file = FileRecord(path: url.path, isDirectory: values.isDirectory ?? false, size: Int64(values.fileSize ?? 0), modified: values.contentModificationDate ?? .distantPast)
+            collected[url.path] = file
+            checkpoint.append(file)
             if collected.count % 2000 == 0 {
                 progress(collected.count)
+                // Upsert only the new batch; never delete unvisited cached entries.
+                try db().replace(scopes: [], records: checkpoint)
+                checkpoint.removeAll(keepingCapacity: true)
                 if Date().timeIntervalSince(lastSnapshot) > 5 { lastSnapshot = Date(); snapshot?(Array(collected.values)) }
             }
         }
@@ -73,6 +81,7 @@ actor IndexEngine {
         }
         let removed = old.filter { item in !roots.contains(where: { PathScope.contains($0, item.path) }) || excludedPath(item.path) }.map(\.path)
         try db().replace(scopes: PathScope.compact(completed + removed), records: Array(collected.values))
+        checkpoint.removeAll()
         return ScanResult(files: try db().load(), issues: Array(issues.prefix(200)))
     }
 }
@@ -105,7 +114,8 @@ actor IndexEngine {
         cache = cacheURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Anyseek")
         cache = URL(fileURLWithPath: PathScope.canonical(cache.path))
         engine = IndexEngine(cache: cache)
-        if let selectedRoots { roots = selectedRoots } else { roots = detectedVolumes() }
+        if let selectedRoots { roots = selectedRoots }
+        else { roots = Array(Set(roots + detectedVolumes())).sorted() }
         roots = Array(Set(roots.map { PathScope.canonical($0) })).sorted()
         excluded = PathScope.compact(excluded.map { PathScope.canonical($0) })
         if let benchmarkFiles {
@@ -143,7 +153,8 @@ actor IndexEngine {
     }
     private func refreshVolumes() {
         guard automaticVolumes else { return }
-        roots = detectedVolumes()
+        let saved = UserDefaults.standard.stringArray(forKey: "roots") ?? []
+        roots = Array(Set(saved + detectedVolumes())).sorted()
         // Hide disconnected volumes immediately; the next scan reconciles storage.
         files.removeAll { file in file.path.hasPrefix("/Volumes/") && !roots.dropFirst().contains(where: { PathScope.contains($0, file.path) }) }
         revision += 1
@@ -219,12 +230,12 @@ actor IndexEngine {
         guard !queued.isEmpty else { return }
         let scopes = Array(queued); queued.removeAll()
         let selectedRoots = roots, exclusions = excluded
-        indexing = true; status = "Indexing…"
+        indexing = true; status = files.isEmpty ? "Indexing…" : "Checking for changes · cached index ready"
         job = Task(priority: .background) {
             do {
                 let initiallyEmpty = files.isEmpty
                 let result = try await engine.scan(scopes: selectedRoots.isEmpty ? [] : scopes, roots: selectedRoots, excluded: exclusions, progress: { [weak self] count in
-                    Task { @MainActor [weak self] in if self?.indexing == true { self?.status = "Indexing… \(count.formatted()) objects" } }
+                    Task { @MainActor [weak self] in if self?.indexing == true { self?.status = "Checking files… \(count.formatted()) objects" } }
                 }, snapshot: { [weak self] partial in
                     guard initiallyEmpty else { return }
                     Task { @MainActor [weak self] in

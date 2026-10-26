@@ -3,7 +3,7 @@ import AppKit
 import AnyseekCore
 
 struct WorkspaceTabs: View {
-    @State private var tab = 0
+    @AppStorage("workspaceTab") private var tab = 0
     var body: some View {
         TabView(selection: $tab) {
             SearchWindow().tabItem { Label("Search", systemImage: "magnifyingglass") }.tag(0)
@@ -18,7 +18,7 @@ extension Notification.Name { static let spaceManagerTest = Notification.Name("a
 
 struct SpaceManager: View {
     @EnvironmentObject var index: IndexStore
-    @State private var root = "/"
+    @AppStorage("spaceRoot") private var root = "/"
     @State private var zoom = ""
     @State private var selected: String?
     @State private var tree: SpaceTree?
