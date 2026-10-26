@@ -175,7 +175,10 @@ final class SpaceMapCanvas: NSView, NSViewToolTipOwner {
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.activeInKeyWindow,.mouseMoved,.mouseEnteredAndExited,.inVisibleRect], owner: self))
     }
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.white.setFill(); dirtyRect.fill()
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        context.saveGState(); context.clip(to: bounds)
+        defer { context.restoreGState() }
+        NSColor.white.setFill(); bounds.fill()
         guard let model else { return }
         let palette: [NSColor] = [.init(calibratedRed: 0.72,green: 0.85,blue: 1,alpha: 1), .init(calibratedRed: 0.76,green: 0.94,blue: 0.72,alpha: 1), .init(calibratedRed: 1,green: 0.88,blue: 0.62,alpha: 1), .init(calibratedRed: 1,green: 0.74,blue: 0.72,alpha: 1), .init(calibratedRed: 0.86,green: 0.77,blue: 1,alpha: 1)]
         for tile in tiles where tile.rect.intersects(dirtyRect) {
