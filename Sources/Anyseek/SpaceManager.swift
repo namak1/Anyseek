@@ -9,6 +9,7 @@ struct WorkspaceTabs: View {
             SearchWindow().tabItem { Label("Search", systemImage: "magnifyingglass") }.tag(0)
             SpaceManager().tabItem { Label("Space Manager", systemImage: "square.grid.3x3.fill") }.tag(1)
         }
+        .preferredColorScheme(.light)
         .onReceive(NotificationCenter.default.publisher(for: .anyseekFocus)) { _ in tab = 0 }
         .onReceive(NotificationCenter.default.publisher(for: .spaceManagerTest)) { _ in tab = 1 }
     }

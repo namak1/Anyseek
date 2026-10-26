@@ -146,7 +146,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         guard let canvas, let model = canvas.model, !canvas.tiles.isEmpty,
               let content = canvas.window?.contentView else { fputs("Space Manager map missing\n", stderr); exit(1) }
-        content.layoutSubtreeIfNeeded()
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        content.layoutSubtreeIfNeeded(); content.displayIfNeeded()
         if let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
             content.cacheDisplay(in: content.bounds, to: bitmap)
             if let data = bitmap.representation(using: .png, properties: [:]) { try? data.write(to: URL(fileURLWithPath: "dist/Anyseek-space-manager.png")) }
