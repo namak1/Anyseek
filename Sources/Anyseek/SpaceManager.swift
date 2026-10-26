@@ -171,7 +171,7 @@ final class SpaceMapCanvas: NSView, NSViewToolTipOwner {
     }
     override func updateTrackingAreas() {
         super.updateTrackingAreas(); trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.activeInKeyWindow,.mouseMoved,.mouseExited,.inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.activeInKeyWindow,.mouseMoved,.mouseEnteredAndExited,.inVisibleRect], owner: self))
     }
     override func draw(_ dirtyRect: NSRect) {
         NSColor.white.setFill(); dirtyRect.fill()
@@ -230,7 +230,7 @@ final class SpaceMapCanvas: NSView, NSViewToolTipOwner {
         else if event.keyCode == 51 && event.modifierFlags.contains(.command), let path = model?.selection, model?.allowDelete == true { model?.trash(path) }
         else { super.keyDown(with: event) }
     }
-    func view(_ view: NSView, stringForToolTip tag: NSToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
+    func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
         guard let model, let hit = tiles.indices.reversed().first(where: { tiles[$0].rect.contains(point) }) else { return "" }
         let tile = tiles[hit], node = model.tree.nodes[tile.node ?? tile.parent]
         return "\(node.path)\n\(ByteCountFormatter.string(fromByteCount: Int64(min(Double(Int64.max - 1024),tile.bytes)), countStyle: .file))\(tile.node == nil ? " in smaller items; double-click to zoom into parent" : "")"
