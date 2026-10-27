@@ -8,7 +8,11 @@ public struct FileRecord: Codable, Identifiable, Hashable {
     public let size: Int64
     public let modified: Date
     public init(path: String, isDirectory: Bool, size: Int64, modified: Date) {
-        self.path = path; self.name = URL(fileURLWithPath: path).lastPathComponent
+        var nativePath = path
+        nativePath.makeContiguousUTF8()
+        var nativeName = URL(fileURLWithPath: path).lastPathComponent
+        nativeName.makeContiguousUTF8()
+        self.path = nativePath; self.name = nativeName
         self.isDirectory = isDirectory; self.size = size; self.modified = modified
     }
 }
