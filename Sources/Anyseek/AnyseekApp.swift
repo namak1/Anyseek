@@ -175,16 +175,12 @@ struct SearchWindow: View {
     /// User input cancels obsolete queries. Disk activity never cancels a query:
     /// publish its snapshot, then catch up to the newest index revision.
     private func followIndex() async {
-        var publishedRevision = -1, publishedLiveRevision = -1
-        while !Task.isCancelled {
-            if publishedRevision != index.revision || publishedLiveRevision != index.liveRevision {
-                let revision = index.revision, liveRevision = index.liveRevision
-                await search()
-                publishedRevision = revision; publishedLiveRevision = liveRevision
-            }
-            do { try await Task.sleep(nanoseconds: 300_000_000) } catch { return }
+        for await _ in index.searchChanges() {
+            guard !Task.isCancelled else { return }
+            await search()
         }
     }
+
     private func search() async {
         let files = index.files, text = query, selectedCategory = category, sensitive = caseSensitive, path = matchPath, whole = wholeWord, regular = regex, hidden = showHidden
         let parser = SearchQuery(text, caseSensitive: sensitive, matchPath: path, wholeWord: whole, regex: regular)
@@ -197,7 +193,10 @@ struct SearchWindow: View {
         searching = true
         let worker = Task.detached(priority: .userInitiated) {
             let extensions: [String: Set<String>] = ["Documents": ["pdf", "doc", "docx", "txt", "rtf", "xlsx", "csv", "pptx", "md"], "Images": ["png", "jpg", "jpeg", "gif", "heic", "webp", "tiff", "svg"], "Audio": ["mp3", "m4a", "flac", "wav", "aac", "aiff", "ogg"], "Video": ["mp4", "mkv", "mov", "avi", "webm", "m4v"], "Archives": ["zip", "rar", "7z", "gz", "tar"]]
-            return try await engine.results(files: files, revision: revision, signature: signature, column: column, descending: descending, liveToken: liveToken, removed: removed, updated: updated) { file in
+            return try await engine.results(files: files, revision: revision, signature: signature, column: column, descending: descending, liveToken: liveToken, removed: removed, updated: updated,
+                refinement: parser.refinementLiteral.map {
+                    [selectedCategory, String(sensitive), String(path), String(hidden), $0].joined(separator: "\0")
+                }) { file in
                 if !hidden && file.path.contains("/.") { return false }
                 let categoryMatches = selectedCategory == "Everything" || (selectedCategory == "Folders" ? file.isDirectory : !file.isDirectory && (extensions[selectedCategory]?.contains((file.name as NSString).pathExtension.lowercased()) ?? false))
                 return categoryMatches && (text.isEmpty || parser.matches(file))

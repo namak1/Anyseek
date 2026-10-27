@@ -43,13 +43,16 @@ public final class IndexDatabase {
     public func replace(scopes: [String], records: [FileRecord]) throws {
         try execute("BEGIN IMMEDIATE")
         do {
-            let delete = try statement("DELETE FROM files WHERE path = ? OR substr(path,1,length(?)) = ?")
+            let delete = try statement("DELETE FROM files WHERE path = ? OR (path >= ? AND path < ?)")
             defer { sqlite3_finalize(delete) }
             for path in scopes {
                 let prefix = path == "/" ? "/" : path + "/"
                 sqlite3_bind_text(delete, 1, path, -1, transient)
                 sqlite3_bind_text(delete, 2, prefix, -1, transient)
-                sqlite3_bind_text(delete, 3, prefix, -1, transient)
+                // "/" is immediately below "0" in SQLite BINARY collation.
+                // This exact prefix interval uses the path PRIMARY KEY index.
+                let upper = path == "/" ? "0" : path + "0"
+                sqlite3_bind_text(delete, 3, upper, -1, transient)
                 guard sqlite3_step(delete) == SQLITE_DONE else { throw failure() }
                 sqlite3_reset(delete); sqlite3_clear_bindings(delete)
             }

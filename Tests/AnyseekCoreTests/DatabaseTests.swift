@@ -28,3 +28,15 @@ final class DatabaseTests: XCTestCase {
         XCTAssertEqual(PathScope.compact(["/a", "/a/b", "/ab", "/a"]), ["/a", "/ab"])
     }
 }
+
+extension DatabaseTests {
+    func testIndexedDeletionUnicodeAndAdjacentPrefixes() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let db = try IndexDatabase(url: folder.appendingPathComponent("index.sqlite"))
+        let paths = ["/a", "/a-keep", "/a/one", "/a0", "/a_/keep", "/a%/keep", "/کشتی/بار", "/کشتی0"]
+        try db.replace(scopes: [], records: paths.map { FileRecord(path: $0, isDirectory: false, size: 0, modified: .distantPast) })
+        try db.replace(scopes: ["/a", "/کشتی"], records: [])
+        XCTAssertEqual(Set(try db.load().map(\.path)), Set(["/a-keep", "/a0", "/a_/keep", "/a%/keep", "/کشتی0"]))
+    }
+}

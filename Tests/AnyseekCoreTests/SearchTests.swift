@@ -73,3 +73,14 @@ extension SearchTests {
         }
     }
 }
+
+extension SearchTests {
+    func testRefinementIsRestrictedToPlainLiterals() {
+        XCTAssertEqual(SearchQuery("Report-12.txt").refinementLiteral, "Report-12.txt")
+        for query in ["", "a b", "a|b", "!a", "ext:txt", "a*", "\"a\"", "کشتی", "a/b"] {
+            XCTAssertNil(SearchQuery(query).refinementLiteral)
+        }
+        XCTAssertNil(SearchQuery("abc", wholeWord: true).refinementLiteral)
+        XCTAssertNil(SearchQuery("abc", regex: true).refinementLiteral)
+    }
+}

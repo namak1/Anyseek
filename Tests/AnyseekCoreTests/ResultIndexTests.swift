@@ -131,3 +131,65 @@ extension ResultIndexTests {
         XCTAssertEqual(Array(rows), files)
     }
 }
+
+extension ResultIndexTests {
+    func testRefinementBackspaceOptionsAndLiveReplacement() async throws {
+        let files = ["/a/report.txt", "/b/reporting.txt", "/c/other.txt"].map {
+            FileRecord(path: $0, isDirectory: false, size: 1, modified: .distantPast)
+        }
+        let engine = ResultIndex()
+        var visits = 0
+        _ = try await engine.results(files: files, revision: 1, signature: "rep", column: .name, descending: false, refinement: "name\0rep") {
+            visits += 1; return $0.name.contains("rep")
+        }
+        XCTAssertEqual(visits, 3)
+        visits = 0
+        let replacement = FileRecord(path: "/c/other.txt", isDirectory: false, size: 9, modified: .distantPast)
+        let refined = try await engine.results(files: files, revision: 1, signature: "reporting", column: .size, descending: false, liveToken: 1, updated: [replacement], refinement: "name\0reporting") {
+            visits += 1; return $0.name.contains("reporting")
+        }
+        XCTAssertEqual(refined.map(\.path), ["/b/reporting.txt"])
+        XCTAssertEqual(visits, 3, "Two previous base matches and one overlay record")
+        visits = 0
+        let broad = try await engine.results(files: files, revision: 1, signature: "r", column: .path, descending: false, liveToken: 1, updated: [replacement], refinement: "name\0r") {
+            visits += 1; return $0.name.contains("r")
+        }
+        XCTAssertEqual(broad.count, 3)
+        XCTAssertEqual(visits, 4, "Backspace must inspect the full base plus overlay")
+        let changedOptions = try await engine.results(files: files, revision: 1, signature: "path", column: .path, descending: false, refinement: "path\0report") { $0.path.contains("/c/") }
+        XCTAssertEqual(changedOptions.map(\.path), ["/c/other.txt"])
+    }
+
+    func testSortedLiveSubtreesAndSiblingBoundaries() async throws {
+        let files = ["/a", "/a-keep", "/a/one", "/a/sub/two", "/ab/keep", "/کشتی/بار"].map {
+            FileRecord(path: $0, isDirectory: false, size: 0, modified: .distantPast)
+        }.sorted { $0.path < $1.path }
+        let engine = ResultIndex()
+        let before = try await engine.results(files: files, revision: 1, signature: "all", column: .path, descending: false) { _ in true }
+        let after = try await engine.results(files: files, revision: 1, signature: "all", column: .path, descending: false, liveToken: 1, removed: ["/a"]) { _ in XCTFail("Live deletion must not refilter"); return true }
+        XCTAssertEqual(after.map(\.path), ["/a-keep", "/ab/keep", "/کشتی/بار"])
+        XCTAssertEqual(before.count, 6)
+        let empty = try await engine.results(files: files, revision: 1, signature: "all", column: .path, descending: false, liveToken: 2, removed: ["/"]) { _ in true }
+        XCTAssertTrue(empty.isEmpty)
+    }
+
+    func testColdSparseQueryAndRefinementBenchmark() async throws {
+        let files = (0..<1_000_000).map {
+            FileRecord(path: "/files/Report-\($0).txt", isDirectory: false, size: Int64($0), modified: .distantPast)
+        }
+        let engine = ResultIndex()
+        var previous = Date()
+        for (text, expected) in [("Report-123", 1111), ("Report-1234", 111), ("Report-12345", 11)] {
+            let query = SearchQuery(text)
+            let rows = try await engine.results(files: files, revision: 1, signature: text, column: .name, descending: false, refinement: query.refinementLiteral) { query.matches($0) }
+            XCTAssertEqual(rows.count, expected)
+            let elapsed = Date().timeIntervalSince(previous)
+            print("COLD/REFINE BENCHMARK 1000000: \(text)=\(elapsed)s")
+            #if !DEBUG
+            // Regression guards, not a guarantee for arbitrary hardware/data.
+            XCTAssertLessThan(elapsed, text == "Report-123" ? 0.5 : 0.1)
+            #endif
+            previous = Date()
+        }
+    }
+}

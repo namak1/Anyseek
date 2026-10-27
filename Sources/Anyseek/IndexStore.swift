@@ -88,8 +88,8 @@ actor IndexEngine {
 
 @MainActor final class IndexStore: ObservableObject {
     @Published var files: [FileRecord] = []
-    @Published var revision = 0
-    @Published var liveRevision = 0
+    @Published var revision = 0 { didSet { notifySearch() } }
+    @Published var liveRevision = 0 { didSet { notifySearch() } }
     private(set) var liveRemoved = Set<String>()
     private(set) var liveUpdated: [String: FileRecord] = [:]
     @Published var status = "Loading index…"
@@ -97,6 +97,22 @@ actor IndexEngine {
     @Published var issues: [String] = []
     @Published var roots = UserDefaults.standard.stringArray(forKey: "roots") ?? []
     @Published var excluded = UserDefaults.standard.stringArray(forKey: "excluded") ?? []
+    private var searchObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
+    /// Buffer only the newest signal while a query is running. Disk activity
+    /// cannot cancel/starve that query, and no timer adds latency afterward.
+    func searchChanges() -> AsyncStream<Void> {
+        let id = UUID()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            searchObservers[id] = continuation
+            continuation.yield(())
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor [weak self] in self?.searchObservers.removeValue(forKey: id) }
+            }
+        }
+    }
+    private func notifySearch() {
+        for continuation in searchObservers.values { continuation.yield(()) }
+    }
     private var stream: FSEventStreamRef?
     private var pending: DispatchWorkItem?
     private var livePending: DispatchWorkItem?
@@ -209,6 +225,8 @@ actor IndexEngine {
     }
     func shutdown() {
         job?.cancel(); pending?.cancel(); livePending?.cancel()
+        for continuation in searchObservers.values { continuation.finish() }
+        searchObservers.removeAll()
         if let stream { FSEventStreamStop(stream); FSEventStreamInvalidate(stream); FSEventStreamRelease(stream); self.stream = nil }
         for observer in volumeObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         volumeObservers.removeAll()
@@ -272,7 +290,7 @@ actor IndexEngine {
                 return !dir || structural || full
             }.map { paths[$0] }
             Task { @MainActor in owner.changed(visible, full: full, recursive: recursive) }
-        }, &context, roots as CFArray, FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 0.1, FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagWatchRoot | kFSEventStreamCreateFlagFileEvents))
+        }, &context, roots as CFArray, FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 0.1, FSEventStreamCreateFlags(kFSEventStreamCreateFlagNoDefer | kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagWatchRoot | kFSEventStreamCreateFlagFileEvents))
         if let stream { FSEventStreamSetDispatchQueue(stream, .main); if !FSEventStreamStart(stream) { issues.append("Change monitoring unavailable. Use Refresh.") } }
     }
     private func changed(_ paths: [String], full: Bool, recursive: Set<String>) {
@@ -286,7 +304,7 @@ actor IndexEngine {
                 self.livePaths.removeAll(); self.liveRecursive.removeAll(); self.livePending = nil
                 self.inspectLive(paths, recursive: directories)
             }
-            livePending = item; DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: item)
+            livePending = item; DispatchQueue.main.asyncAfter(deadline: .now() + 0.016, execute: item)
         }
         if full { queued.formUnion(roots) }
         pending?.cancel()

@@ -29,7 +29,13 @@ public struct SearchQuery {
     private let expression: Expression
     public let error: String?
     public let readsContent: Bool
+    /// Appending ASCII literal characters can only remove matches. All other
+    /// grammar (including quotes, Unicode and regex) uses the general evaluator.
+    public let refinementLiteral: String?
     public init(_ text: String, caseSensitive: Bool = false, matchPath: Bool = false, wholeWord: Bool = false, regex: Bool = false) {
+        refinementLiteral = !regex && !wholeWord && !text.isEmpty
+            && text.utf8.allSatisfy { ($0 >= 48 && $0 <= 57) || ($0 >= 65 && $0 <= 90) || ($0 >= 97 && $0 <= 122) || $0 == 45 || $0 == 46 || $0 == 95 }
+            ? text : nil
         var parser = Parser(text, caseSensitive: caseSensitive, matchPath: matchPath, wholeWord: wholeWord)
         if regex {
             expression = parser.compile("regex:" + text)
@@ -68,13 +74,13 @@ public struct SearchQuery {
         mutating func parseOr() -> Expression {
             var terms = [parseAnd()]
             while position < tokens.count && tokens[position] == "|" { position += 1; terms.append(parseAnd()) }
-            return .or(terms)
+            return terms.count == 1 ? terms[0] : .or(terms)
         }
         mutating func parseAnd() -> Expression {
             var terms: [Expression] = []
             while position < tokens.count && tokens[position] != "|" && tokens[position] != ">" { terms.append(parseUnary()) }
             if terms.isEmpty && !tokens.isEmpty { error = "Missing search expression" }
-            return .and(terms)
+            return terms.count == 1 ? terms[0] : .and(terms)
         }
         mutating func parseUnary() -> Expression {
             guard position < tokens.count else { error = "Missing search term"; return .and([]) }

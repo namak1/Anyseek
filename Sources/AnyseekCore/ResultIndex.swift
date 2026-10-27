@@ -57,15 +57,16 @@ public actor ResultIndex {
     private var base: [FileRecord] = []
     private var overlay: [FileRecord] = []
     private var orders: [ResultColumn: [Int]] = [:]
-    private var visible: [Bool] = []
-    private var membership: [Bool] = []
+    private var suppressed = Set<Int>()
+    private var matchedIDs: [Int] = []
+    private var refinement: String?
     private var overlayMatches: [Int] = []
     private var lastRemoved: Set<String> = []
     private var orderIdentities: [ResultColumn: String] = [:]
     private var queryOrders: [ResultColumn: [Int]] = [:]
     public init() { }
 
-    public func results(files: [FileRecord], revision: Int, signature: String, column: ResultColumn, descending: Bool, liveToken: Int = 0, removed: Set<String> = [], updated: [FileRecord] = [], matches: (FileRecord) -> Bool) throws -> ResultRows {
+    public func results(files: [FileRecord], revision: Int, signature: String, column: ResultColumn, descending: Bool, liveToken: Int = 0, removed: Set<String> = [], updated: [FileRecord] = [], refinement: String? = nil, matches: (FileRecord) -> Bool) throws -> ResultRows {
         try Task.checkCancellation()
         if self.revision != revision {
             base = files; orders.removeAll(); queryOrders.removeAll()
@@ -74,40 +75,72 @@ public actor ResultIndex {
                 if i & 4095 == 0 { try Task.checkCancellation() }
                 if base[i].path < base[i - 1].path { basePathOrdered = false; break }
             }
-            self.revision = revision; self.signature = nil; self.liveToken = -1
+            self.revision = revision; self.signature = nil; self.liveToken = -1; self.refinement = nil
         }
         let queryChanged = self.signature != signature
         let liveChanged = self.liveToken != liveToken && (self.liveToken == -1 || lastRemoved != removed || overlay != updated)
         if !liveChanged { self.liveToken = liveToken }
         if queryChanged {
+            // Only callers with a proven monotonic predicate may supply this key.
+            // Backspace, syntax changes and changed options always rescan.
+            let narrow = refinement != nil && self.refinement != nil
+                && refinement!.hasPrefix(self.refinement!) && self.signature != nil
             self.signature = nil
-            var next = [Bool](); next.reserveCapacity(base.count)
-            for i in base.indices {
-                if i & 4095 == 0 { try Task.checkCancellation() }
-                next.append(matches(base[i]))
+            var next = [Int](); next.reserveCapacity(narrow ? matchedIDs.count : min(base.count, 65536))
+            if narrow {
+                for (offset, id) in matchedIDs.enumerated() {
+                    if offset & 1023 == 0 { try Task.checkCancellation() }
+                    if matches(base[id]) { next.append(id) }
+                }
+            } else {
+                for id in base.indices {
+                    if id & 1023 == 0 { try Task.checkCancellation() }
+                    if matches(base[id]) { next.append(id) }
+                }
             }
-            membership = next
+            matchedIDs = next
+            self.refinement = refinement
         }
         if liveChanged {
             self.liveToken = -1
-            let scopes = PathScope.compact(Array(removed)), scopeSet = Set(scopes)
+            var next = Set<Int>()
+            let scopes = PathScope.compact(Array(removed))
             let changed = Set(updated.map(\.path))
-            func deleted(_ path: String) -> Bool {
-                if scopes.count <= 8 { return scopes.contains { PathScope.contains($0, path) } }
-                var candidate = path[...]
-                while !candidate.isEmpty {
-                    if scopeSet.contains(String(candidate)) { return true }
-                    guard let slash = candidate.lastIndex(of: "/") else { break }
-                    candidate = candidate[..<slash]
+            if basePathOrdered {
+                // Snapshot paths are sorted: locate affected subtrees by binary
+                // search instead of checking every indexed path on every event.
+                func lowerBound(_ path: String) -> Int {
+                    var lo = 0, hi = base.count
+                    while lo < hi {
+                        let mid = lo + (hi - lo) / 2
+                        if base[mid].path < path { lo = mid + 1 } else { hi = mid }
+                    }
+                    return lo
                 }
-                return scopeSet.contains("/")
+                for path in changed {
+                    let id = lowerBound(path)
+                    if id < base.count && base[id].path == path { next.insert(id) }
+                }
+                for path in scopes {
+                    try Task.checkCancellation()
+                    let exact = lowerBound(path)
+                    if exact < base.count && base[exact].path == path { next.insert(exact) }
+                    let prefix = path == "/" ? "/" : path + "/"
+                    var id = lowerBound(prefix)
+                    while id < base.count && base[id].path.hasPrefix(prefix) {
+                        if id & 1023 == 0 { try Task.checkCancellation() }
+                        next.insert(id); id += 1
+                    }
+                }
+            } else if !scopes.isEmpty || !changed.isEmpty {
+                for id in base.indices {
+                    if id & 1023 == 0 { try Task.checkCancellation() }
+                    if changed.contains(base[id].path) || scopes.contains(where: { PathScope.contains($0, base[id].path) }) {
+                        next.insert(id)
+                    }
+                }
             }
-            var next = [Bool](); next.reserveCapacity(base.count)
-            for i in base.indices {
-                if i & 4095 == 0 { try Task.checkCancellation() }
-                next.append(!changed.contains(base[i].path) && !deleted(base[i].path))
-            }
-            visible = next; overlay = updated; lastRemoved = removed
+            suppressed = next; overlay = updated; lastRemoved = removed
         }
         if queryChanged || liveChanged {
             // Commit tokens only after cancellable work completes. A cancelled request
@@ -116,12 +149,21 @@ public actor ResultIndex {
             self.signature = signature; self.liveToken = liveToken; queryOrders.removeAll()
         }
         if queryOrders[column] == nil {
-            if orders[column] == nil { orders[column] = try order(base, column: column) }
-            let order = orders[column]!
-            var selected = [Int](); selected.reserveCapacity(min(base.count, 65536))
-            for (offset, id) in order.enumerated() {
-                if offset & 4095 == 0 { try Task.checkCancellation() }
-                if membership[id] && visible[id] { selected.append(id) }
+            var selected: [Int]
+            if matchedIDs.count <= max(4096, base.count / 8) {
+                // A rare query must never pay for sorting the entire drive.
+                selected = try mergeSort(matchedIDs.filter { !suppressed.contains($0) }) {
+                    precedes(base[$0], base[$1], column)
+                }
+            } else {
+                if orders[column] == nil { orders[column] = try order(base, column: column) }
+                var mask = [Bool](repeating: false, count: base.count)
+                for id in matchedIDs { mask[id] = true }
+                selected = []; selected.reserveCapacity(matchedIDs.count)
+                for (offset, id) in orders[column]!.enumerated() {
+                    if offset & 1023 == 0 { try Task.checkCancellation() }
+                    if mask[id] && !suppressed.contains(id) { selected.append(id) }
+                }
             }
             let incoming = overlayMatches.sorted { precedes(overlay[$0], overlay[$1], column) }
             if !incoming.isEmpty {
@@ -159,6 +201,7 @@ public actor ResultIndex {
         }
     }
     private func order(_ files: [FileRecord], column: ResultColumn) throws -> [Int] {
+        if column == .path && basePathOrdered { return Array(files.indices) }
         guard files.count > 1 else { return Array(files.indices) }
         if column == .size || column == .modified {
             // Eight stable byte passes replace O(n log n) numeric comparisons.
